@@ -34,6 +34,9 @@ export function createGeocodingProvider(
             "User-Agent": "MarketScout/0.1 (local analysis tool)",
             Accept: "application/json",
           },
+          // Consistent with the other live providers: never hang the whole
+          // analysis on a slow upstream.
+          signal: AbortSignal.timeout(15_000),
         },
       );
 
