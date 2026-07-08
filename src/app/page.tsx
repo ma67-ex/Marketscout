@@ -10,6 +10,7 @@
 
 import { useRef, useState } from "react";
 import RotatingEarth, { type GlobeFocus } from "@/components/ui/wireframe-dotted-globe";
+import LocationAutocomplete from "@/components/ui/location-autocomplete";
 import type { AnalysisMode, AnalysisReport } from "@/lib/types";
 
 type FormState = {
@@ -95,12 +96,12 @@ export default function Home() {
           </div>
 
           <Field label="Location" htmlFor="location">
-            <input
+            <LocationAutocomplete
               id="location"
               className={inputClass}
-              placeholder="e.g. Williamsville, NY"
+              placeholder="Start typing a city, e.g. Williamsville, NY"
               value={form.location}
-              onChange={(e) => setForm({ ...form, location: e.target.value })}
+              onChange={(location) => setForm({ ...form, location })}
               required
             />
           </Field>
