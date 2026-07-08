@@ -38,8 +38,10 @@ interface LandCollection {
   features: LandFeature[];
 }
 
-const LAND_DATA_URL =
-  "https://raw.githubusercontent.com/martynafford/natural-earth-geojson/refs/heads/master/110m/physical/ne_110m_land.json";
+// Served from /public (same origin) so it loads under the app's strict CSP
+// (`connect-src 'self'`) without depending on GitHub being reachable.
+// Source: natural-earth-geojson 110m physical land (martynafford).
+const LAND_DATA_URL = "/ne_110m_land.json";
 
 // How much closer the camera gets when a location is focused.
 const FOCUS_ZOOM = 1.65;
