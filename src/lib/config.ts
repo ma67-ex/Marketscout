@@ -1,9 +1,11 @@
 // Runtime configuration.
 //
-// The whole app runs in demo mode out of the box: with no API keys present,
-// every provider resolves to its mock implementation and the app is fully
-// usable. When a key is added to the environment, that one provider switches to
-// live automatically. There is nothing else to change.
+// Geocoding, places, and Reddit run live with zero keys (Nominatim, Overpass,
+// and Reddit's public search are all free and unauthenticated). Only the
+// AI-written synthesis needs a key (ANTHROPIC_API_KEY) -- without one it
+// falls back to a template that still describes the live data accurately,
+// just without LLM-generated prose. Set MARKET_SCOUT_FORCE_MOCK=1 to force
+// fully offline sample data instead (useful for demos with no network).
 
 export interface AppConfig {
   // Free geocoding via Nominatim (OpenStreetMap). No API key needed.
@@ -63,32 +65,32 @@ export function getConfig(): AppConfig {
   };
 }
 
-// Per-provider mock decisions. A provider is mocked when forced, or when its
-// required credentials are missing. Geocoding and places use free APIs so they
-// never need to be mocked. Reddit and AI are optional; mock them when keys
-// are absent or force-mock is on.
+// Per-provider mock decisions. Geocoding, places, and Reddit are all free and
+// keyless, so the only thing that ever forces them to mock is the explicit
+// MARKET_SCOUT_FORCE_MOCK override. AI synthesis mocks whenever no Anthropic
+// key is configured, since that is the one provider with no free live path.
 export interface MockDecisions {
   geocoding: boolean;
   places: boolean;
   reddit: boolean;
   ai: boolean;
-  // True when at least one provider is serving mock data.
-  any: boolean;
+  // True only when the underlying FACTS (places/reviews/posts) are sample
+  // data rather than real. AI running as a template over real data does not
+  // count -- it is a synthesis-method difference, not fabricated data.
+  usingSampleData: boolean;
 }
 
 export function resolveMockDecisions(config: AppConfig): MockDecisions {
   const force = config.forceMock;
-  // Geocoding and places always use live free APIs (Nominatim / Overpass).
   const geocoding = force;
   const places = force;
-  // Reddit and AI are optional; mock when keys missing or forced.
-  const reddit = force || !config.reddit.clientId || !config.reddit.clientSecret;
+  const reddit = force;
   const ai = force || !config.ai.apiKey;
   return {
     geocoding,
     places,
     reddit,
     ai,
-    any: geocoding || places || reddit || ai,
+    usingSampleData: geocoding || places || reddit,
   };
 }

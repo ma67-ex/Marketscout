@@ -20,6 +20,6 @@ export function getProviders(): ProviderBundle {
     places: createPlacesProvider(config, mock.places),
     reddit: createRedditProvider(config, mock.reddit),
     ai: createAIProvider(config, mock.ai),
-    usingMock: mock.any,
+    usingMock: mock.usingSampleData,
   };
 }
