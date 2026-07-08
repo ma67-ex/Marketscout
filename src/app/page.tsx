@@ -8,9 +8,10 @@
 // sections flow below. Kept deliberately minimal: black/white, thin borders,
 // no decoration that does not carry information.
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import RotatingEarth, { type GlobeFocus } from "@/components/ui/wireframe-dotted-globe";
 import LocationAutocomplete from "@/components/ui/location-autocomplete";
+import FieldOfStudySelect from "@/components/ui/field-of-study-select";
 import type { AnalysisMode, AnalysisReport } from "@/lib/types";
 
 type FormState = {
@@ -34,9 +35,13 @@ export default function Home() {
   const [report, setReport] = useState<AnalysisReport | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
-  const focus: GlobeFocus | null = report
-    ? { lat: report.location.lat, lng: report.location.lng }
-    : null;
+  // Stable reference so the globe only re-animates when the coordinates
+  // actually change, not on every unrelated re-render.
+  const focus: GlobeFocus | null = useMemo(
+    () =>
+      report ? { lat: report.location.lat, lng: report.location.lng } : null,
+    [report],
+  );
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -60,10 +65,11 @@ export default function Home() {
         throw new Error(data?.error || "Something went wrong.");
       }
       setReport(data as AnalysisReport);
-      // Let the globe start its zoom, then bring the findings into view.
+      // Let the globe finish zooming to the location (~1.4s) before scrolling
+      // the findings into view, so the user actually sees it fly to the spot.
       setTimeout(() => {
         resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 350);
+      }, 1600);
     } catch (err) {
       setReport(null);
       setError(err instanceof Error ? err.message : "Something went wrong.");
@@ -107,12 +113,11 @@ export default function Home() {
           </Field>
 
           <Field label="Field of study" htmlFor="field">
-            <input
+            <FieldOfStudySelect
               id="field"
               className={inputClass}
-              placeholder="e.g. Computer Science"
               value={form.fieldOfStudy}
-              onChange={(e) => setForm({ ...form, fieldOfStudy: e.target.value })}
+              onChange={(fieldOfStudy) => setForm({ ...form, fieldOfStudy })}
               required
             />
           </Field>

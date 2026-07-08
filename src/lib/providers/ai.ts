@@ -78,13 +78,31 @@ async function mockSynthesize(
     .slice(0, 2)
     .map((g) => g.category.toLowerCase());
 
-  const summary = [
-    `The ${city} area has a mix of local services, with ${topCategories.join(", ")} being the most represented categories.`,
+  const { adjective } = fieldAngle(input.fieldOfStudy);
+  const crowded = topCategories.join(", ");
+  const gaps = topGaps.join(" and ");
+  // Seed varies the wording by the actual local data, so different areas read
+  // differently instead of every report using the same skeleton sentence.
+  const seed =
+    input.categoryStats.length + (input.marketGaps[0]?.opportunityScore ?? 0);
+
+  const summary =
     topGaps.length > 0
-      ? `Analysis of local discussion and business data suggests underserved demand in ${topGaps.join(" and ")}.`
-      : "The local market appears relatively well-served across common categories.",
-    `Given a background in ${input.fieldOfStudy}, there are several directions worth considering.`,
-  ].join(" ");
+      ? pickBy(
+          [
+            `${city} leans heavily on ${crowded}, while ${gaps} look underserved — that's where a ${adjective} newcomer could win.`,
+            `Across ${city}, ${crowded} dominate the map, but ${gaps} are noticeably thin. Your ${input.fieldOfStudy} background points to a few concrete moves.`,
+            `The data on ${city} shows a crowded field in ${crowded} and visible openings in ${gaps}. A ${adjective} approach is the real differentiator here.`,
+          ],
+          seed,
+        )
+      : pickBy(
+          [
+            `${city} looks well-served across ${crowded}, so the play is a ${adjective} angle on an existing category rather than an untapped gap.`,
+            `Most common categories in ${city} — ${crowded} — are already covered. Winning here means out-executing incumbents with a ${adjective} approach.`,
+          ],
+          seed,
+        );
 
   if (input.mode === "opportunity") {
     const recommendations = buildMockRecommendations(input);
@@ -98,32 +116,36 @@ async function mockSynthesize(
 function buildMockRecommendations(
   input: AISynthesisInput,
 ): BusinessRecommendation[] {
+  const { adjective, edge } = fieldAngle(input.fieldOfStudy);
+  const city = input.location.city || "the area";
   const topGaps = input.marketGaps.slice(0, 3);
+
   if (topGaps.length === 0) {
     return [
       {
-        name: `${input.fieldOfStudy} Consulting`,
+        name: capitalize(`${adjective} local ${input.fieldOfStudy} studio`),
         category: "Professional services",
-        whyInDemand:
-          "Local businesses frequently need specialized expertise that is currently unavailable in the immediate area.",
-        targetCustomer: "Small business owners and professionals in the area",
+        whyInDemand: `${city} is well-covered on the usual categories, but specialized ${input.fieldOfStudy} services are still something people travel out of the area for.`,
+        targetCustomer: `Small businesses and residents in ${city} who currently outsource ${input.fieldOfStudy} work elsewhere`,
         competitionLevel: "low",
         differentiators: [
-          "Local presence eliminates commute for clients",
-          "Specialization in " + input.fieldOfStudy,
+          `Lead with ${edge}`,
+          "Local presence eliminates the commute clients currently accept",
+          `A ${adjective} operating model most incumbents don't offer`,
         ],
         risks: [
-          "Market size may be limited in a smaller area",
-          "Building initial client base takes time",
+          "Market size may be limited in a smaller area — validate demand before committing",
+          "Building the first client base takes time and referrals",
         ],
-        fieldFit: `Directly applies your ${input.fieldOfStudy} training to local market needs.`,
+        fieldFit: `Puts your ${input.fieldOfStudy} training to work directly, which is the whole moat.`,
         confidence: 55,
       },
     ];
   }
 
   return topGaps.map((gap) => {
-    const confidence = Math.min(90, Math.max(30, gap.opportunityScore));
+    const { concept, customer } = conceptFor(gap.category);
+    const confidence = clamp(Math.round(gap.opportunityScore), 30, 92);
     const competition: Saturation =
       gap.competitionScore < 30
         ? "low"
@@ -131,33 +153,123 @@ function buildMockRecommendations(
           ? "medium"
           : "high";
 
-    // Find related demand signals for richer context.
+    // Real, specific things locals ask for — used to ground the pitch.
     const relatedSignals = input.demandSignals
-      .filter((s) => s.frequency > 0.3)
-      .slice(0, 2);
-    const wantedThings = relatedSignals.map((s) => s.theme).join(", ");
+      .filter((s) => s.frequency > 0.25)
+      .slice(0, 2)
+      .map((s) => s.theme);
+    const wanted =
+      relatedSignals.length > 0
+        ? relatedSignals.join(" and ")
+        : "better options than what's there now";
+
+    // Seed the wording from this gap's own numbers so the three cards read
+    // differently from each other and from other locations' reports.
+    const seed = gap.demandScore + gap.competitionScore + city.length;
+
+    const whyInDemand = pickBy(
+      [
+        `${gap.rationale} People here keep bringing up ${wanted}, and nothing in ${city} really serves it.`,
+        `${gap.rationale} With ${wanted} coming up repeatedly in local chatter, there's room for a ${adjective} take.`,
+        `Demand for ${gap.category.toLowerCase()} outpaces what ${city} offers today — locals specifically mention ${wanted}.`,
+      ],
+      seed,
+    );
 
     return {
-      name: `${gap.category} Hub`,
+      name: capitalize(`${adjective} ${concept}`),
       category: gap.category,
-      whyInDemand: `${gap.rationale} Local residents frequently mention ${wantedThings || "a need for better options"} in this space.`,
-      targetCustomer: `Residents and workers in the ${input.location.city || "local"} area seeking ${gap.category.toLowerCase()} services`,
+      whyInDemand,
+      targetCustomer: capitalize(`${customer} in ${city}`),
       competitionLevel: competition,
       differentiators: [
-        `Apply ${input.fieldOfStudy} expertise to create a differentiated offering`,
-        "Focus on the specific pain points locals have expressed (quality, hours, accessibility)",
-        "Local ownership builds trust in a community that values it",
+        `Lead with ${edge}`,
+        relatedSignals.length > 0
+          ? `Directly answer what locals ask for: ${wanted}`
+          : "Compete on quality, hours, and service where incumbents are weak",
+        `Local ownership and a visible presence in ${city}`,
       ],
       risks: [
         gap.competitionScore > 50
-          ? "Established competitors will be hard to displace without clear differentiation"
-          : "Unproven market -- start small and validate demand before scaling",
-        "Initial capital requirements for setup and first months of operation",
+          ? "Established players are entrenched — you need a clear, defensible edge to displace them"
+          : "The market is unproven here — start lean and validate demand before scaling",
+        "Upfront capital for setup and the first several months of operation",
       ],
-      fieldFit: `Your background in ${input.fieldOfStudy} provides analytical and domain advantages in building and running a ${gap.category.toLowerCase()} operation.`,
+      fieldFit: `Your ${input.fieldOfStudy} background is a natural fit — it's what lets you bring ${edge}.`,
       confidence,
     };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Template helpers: turn the user's field and a category into varied, natural
+// wording instead of one fixed skeleton.
+// ---------------------------------------------------------------------------
+
+// Deterministic choice: same data always yields the same wording (stable
+// results), but different data lands on different phrasings.
+function pickBy<T>(arr: readonly T[], seed: number): T {
+  const i = Math.abs(Math.trunc(seed)) % arr.length;
+  return arr[i];
+}
+
+// How a field of study colors a business concept: an adjective for naming and
+// an "edge" phrase describing the concrete advantage it brings.
+function fieldAngle(field: string): { adjective: string; edge: string } {
+  const f = field.toLowerCase();
+  const table: Array<[RegExp, string, string]> = [
+    [/comput|software|\bdata\b|information tech|\bit\b|programming|web/, "tech-enabled", "software, automation, and online booking that local rivals lack"],
+    [/nutri|diet/, "health-forward", "nutrition expertise and transparent sourcing"],
+    [/nurs|health|medic|care|clinic/, "wellness-focused", "clinical credibility and a duty-of-care mindset"],
+    [/business|management|mba|entrepreneur/, "tightly-run", "sharp operations and margin discipline"],
+    [/market|communicat|media|\bpr\b|advertis/, "brand-led", "storytelling and a strong local social presence"],
+    [/financ|account|econ/, "numbers-driven", "the pricing and cost control most owners get wrong"],
+    [/engineer/, "well-engineered", "reliability and smart process design"],
+    [/design|art|architect/, "design-led", "a look and experience that stands out"],
+    [/culinary|chef|hospitality|food service/, "chef-driven", "menu quality and genuine hospitality"],
+    [/educat|teach|tutor/, "teaching-oriented", "classes and community programming that build loyalty"],
+    [/environ|sustain|ecolog/, "sustainability-minded", "low-waste operations customers increasingly ask for"],
+    [/law|legal/, "compliance-savvy", "airtight contracts and regulatory know-how"],
+    [/psych|counsel|social work/, "people-centered", "empathy and hard-won community trust"],
+    [/agricult|farm/, "farm-to-local", "direct sourcing and freshness rivals can't match"],
+  ];
+  for (const [re, adjective, edge] of table) {
+    if (re.test(f)) return { adjective, edge };
+  }
+  return {
+    adjective: `${field.toLowerCase()}-informed`,
+    edge: `the specialized perspective your ${field} background brings`,
+  };
+}
+
+// Map a (possibly raw OSM) category to a natural business concept and the
+// customer it serves. Falls back gracefully for odd tags.
+function conceptFor(category: string): { concept: string; customer: string } {
+  const c = category.toLowerCase();
+  const table: Array<[RegExp, string, string]> = [
+    [/cafe|coffee/, "specialty coffee & study space", "students, remote workers, and morning commuters"],
+    [/fast.?food/, "healthier quick-service spot", "on-the-go workers who want better than the usual chains"],
+    [/restaurant|food|dining|eat/, "fast-casual eatery", "families and the weekday lunch crowd"],
+    [/pub|bar|drink|brew/, "neighborhood taproom", "locals after an easy evening hangout"],
+    [/bak/, "artisan bakery", "weekend shoppers and gift-buyers"],
+    [/gym|fitness|sport|yoga/, "boutique fitness studio", "residents who want classes close to home"],
+    [/school|educat|tutor|learn/, "tutoring & skills center", "parents and adult learners"],
+    [/grocer|convenience|supermarket|market/, "curated grocery market", "households wanting fresh, local options"],
+    [/pharm|health|clinic|medic|dental/, "wellness clinic", "residents underserved by distant providers"],
+    [/salon|beauty|hair|spa/, "modern salon & spa", "regulars wanting a nearby standby"],
+    [/book|librar/, "bookshop & community space", "readers and event-goers"],
+    [/pet|vet/, "pet supply & grooming shop", "the area's pet owners"],
+    [/repair|hardware|garage/, "repair & maker shop", "homeowners and hobbyists"],
+    [/child|kinder|daycare|nursery/, "childcare & play space", "working parents"],
+    [/laundr|clean/, "modern laundromat & drop-off service", "renters and busy households"],
+  ];
+  for (const [re, concept, customer] of table) {
+    if (re.test(c)) return { concept, customer };
+  }
+  return {
+    concept: `${c} service`,
+    customer: "residents and workers nearby",
+  };
 }
 
 function buildMockImprovementReport(

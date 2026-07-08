@@ -267,11 +267,15 @@ export default function RotatingEarth({
       }
     };
 
-    // Idle auto-rotation.
-    const rotationSpeed = 0.5;
-    const rotate = () => {
+    // Idle auto-rotation. Time-based (degrees per second) so the speed is the
+    // same regardless of the display's frame rate. Kept gentle on purpose.
+    const ROTATION_DEG_PER_SEC = 8;
+    let lastElapsed = 0;
+    const rotate = (elapsed: number) => {
+      const deltaMs = lastElapsed ? elapsed - lastElapsed : 0;
+      lastElapsed = elapsed;
       if (autoRotateRef.current) {
-        rotationRef.current[0] += rotationSpeed;
+        rotationRef.current[0] += (ROTATION_DEG_PER_SEC / 1000) * deltaMs;
         projection.rotate(rotationRef.current);
         render();
       }
