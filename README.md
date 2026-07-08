@@ -1,36 +1,73 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Market Scout
 
-## Getting Started
+Enter a location and your field of study. Market Scout scans the area's real
+businesses and local discussion, then tells you what kind of business is in
+demand there — or, if you already run one, what people want and what you can
+improve.
 
-First, run the development server:
+Built with Next.js, TypeScript, and Tailwind CSS, with an interactive
+wireframe globe that zooms to the analyzed location.
+
+## How it works
+
+1. **Geocoding** — your location text is resolved to coordinates with
+   Nominatim (OpenStreetMap). Free, no key needed.
+2. **Area scan** — nearby businesses and services are pulled from the
+   Overpass API (OpenStreetMap), with automatic fallback across public
+   mirrors. Free, no key needed.
+3. **Demand mining** — reviews and local discussion are scanned for recurring
+   themes (hours, pricing, parking, healthy options, and so on) with
+   sentiment analysis.
+4. **Gap scoring** — every business category gets a demand score, a
+   competition score, and an opportunity score:
+   `opportunity = demand x (1 - competition / 100)`.
+5. **Synthesis** — the findings are written up as concrete recommendations
+   biased toward your field of study, or as an improvement report for your
+   existing business.
+
+## Two modes
+
+- **Find a business opportunity** — ranked business concepts with target
+  customer, competition level, differentiators, risks, and confidence.
+- **Improve my existing business** — what people want, common complaints
+  with real quotes, prioritized improvements, and strengths to keep.
+
+## Running locally
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000. Geocoding and the area scan run live out of the
+box. Reddit discussion and AI-written synthesis use realistic sample data
+until you add keys:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+cp .env.example .env.local
+# then fill in what you have:
+# REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET  (free at reddit.com/prefs/apps)
+# ANTHROPIC_API_KEY                        (for Claude-written synthesis)
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Each provider switches from sample to live automatically when its key is
+present. Set `MARKET_SCOUT_FORCE_MOCK=1` to demo fully offline.
 
-## Learn More
+## Architecture
 
-To learn more about Next.js, take a look at the following resources:
+```
+src/lib/types.ts               Shared domain model
+src/lib/providers/contracts.ts Provider interfaces (mock and live are interchangeable)
+src/lib/providers/             Nominatim, Overpass, Reddit, Anthropic + mocks
+src/lib/analysis/              Pure functions: sentiment, categories, demand, gaps
+src/lib/orchestrator.ts        The pipeline: geocode -> scan -> analyze -> synthesize
+src/app/api/analyze/route.ts   POST endpoint
+src/components/ui/             Wireframe dotted globe (canvas + d3-geo)
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Notes
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- OpenStreetMap has no ratings or review text, so live demand signals lean on
+  local discussion; sample reviews stand in until Reddit keys are added.
+- Scores are heuristics over open data. Treat the output as a research
+  starting point, not a business plan.
