@@ -102,6 +102,9 @@ export interface CategoryStat {
   totalReviews: number;
   // How crowded this category looks relative to the rest of the area.
   saturation: Saturation;
+  // A few real business names of this type found nearby, so the report shows
+  // concrete local players rather than abstract categories.
+  examples: string[];
 }
 
 // A recurring thing people talk about, mined from reviews and Reddit.
@@ -153,6 +156,13 @@ export interface ImprovementReport {
   strengthsToKeep: string[];
 }
 
+// Real, keyless context about the place, from Wikipedia.
+export interface AreaContext {
+  title: string;
+  extract: string;
+  url: string;
+}
+
 // ---------------------------------------------------------------------------
 // Final report returned to the client
 // ---------------------------------------------------------------------------
@@ -162,6 +172,8 @@ export interface AnalysisReport {
   location: GeoLocation;
   // Plain-language overview written by the AI layer.
   summary: string;
+  // Real background on the place (Wikipedia), when available.
+  areaContext?: AreaContext;
   categoryStats: CategoryStat[];
   demandSignals: DemandSignal[];
   marketGaps: MarketGap[];

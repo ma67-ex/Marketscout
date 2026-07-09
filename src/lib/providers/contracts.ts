@@ -7,6 +7,7 @@
 
 import type {
   AnalysisMode,
+  AreaContext,
   BusinessRecommendation,
   CategoryStat,
   DemandSignal,
@@ -63,6 +64,12 @@ export interface ReviewsProvider {
   ): Promise<PlaceReview[]>;
 }
 
+export interface ContextProvider {
+  // Real, keyless background on the location (Wikipedia). Undefined when there
+  // is no confident match. Never throws.
+  describe(location: GeoLocation): Promise<AreaContext | undefined>;
+}
+
 // Input the AI layer needs to write its synthesis. This is the analysis
 // engine's output plus the original request context.
 export interface AISynthesisInput {
@@ -93,6 +100,7 @@ export interface ProviderBundle {
   places: PlacesProvider;
   reddit: RedditProvider;
   reviews: ReviewsProvider;
+  context: ContextProvider;
   ai: AIProvider;
   usingMock: boolean;
 }

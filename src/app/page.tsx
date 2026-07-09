@@ -258,6 +258,21 @@ function Report({ report }: { report: AnalysisReport }) {
         {report.summary}
       </p>
 
+      {report.areaContext && (
+        <p className="mt-4 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+          <span className="font-medium text-foreground">About the area. </span>
+          {report.areaContext.extract}{" "}
+          <a
+            href={report.areaContext.url}
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            Wikipedia
+          </a>
+        </p>
+      )}
+
       {/* Primary result: recommendations or the improvement report. */}
       {report.recommendations && report.recommendations.length > 0 && (
         <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -404,8 +419,15 @@ function Report({ report }: { report: AnalysisReport }) {
               </thead>
               <tbody>
                 {report.categoryStats.map((cat, i) => (
-                  <tr key={i} className="border-t border-border">
-                    <td className="py-1.5 pr-3">{cat.category}</td>
+                  <tr key={i} className="border-t border-border align-top">
+                    <td className="py-1.5 pr-3">
+                      <div>{cat.category}</div>
+                      {cat.examples.length > 0 && (
+                        <div className="text-xs text-muted-foreground">
+                          {cat.examples.join(", ")}
+                        </div>
+                      )}
+                    </td>
                     <td className="py-1.5 pr-3 tabular-nums">{cat.count}</td>
                     <td className="py-1.5 pr-3 tabular-nums">
                       {cat.avgRating === null ? "-" : cat.avgRating.toFixed(1)}

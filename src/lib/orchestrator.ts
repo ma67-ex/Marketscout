@@ -32,15 +32,16 @@ export async function analyze(request: AnalysisRequest): Promise<AnalysisReport>
   // 1. Resolve the free-text location to coordinates.
   const location = await providers.geocoding.geocode(request.location);
 
-  // 2. Gather supply (places) and demand (reddit + keyless public reviews)
-  //    concurrently.
-  const [places, redditPosts, externalReviews] = await Promise.all([
+  // 2. Gather supply (places), demand (reddit + keyless public reviews), and
+  //    real area context concurrently.
+  const [places, redditPosts, externalReviews, areaContext] = await Promise.all([
     providers.places.nearby(location),
     providers.reddit.search(
       location,
       buildRedditKeywords(location.city, location.region, request.fieldOfStudy),
     ),
     providers.reviews.nearby(location),
+    providers.context.describe(location),
   ]);
 
   // 3. Turn raw data into structured signals.
@@ -71,6 +72,7 @@ export async function analyze(request: AnalysisRequest): Promise<AnalysisReport>
     request,
     location,
     summary: synthesis.summary,
+    areaContext,
     categoryStats,
     demandSignals,
     marketGaps,

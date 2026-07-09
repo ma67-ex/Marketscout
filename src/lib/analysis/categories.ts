@@ -8,19 +8,28 @@ import type { Place, CategoryStat, Saturation } from "@/lib/types";
 // category counts are heavily tied (lots of singletons), which collapses a
 // tercile split into a single "medium" bucket and hides genuine saturation.
 
+interface Group {
+  count: number;
+  ratingSum: number;
+  ratedCount: number;
+  totalReviews: number;
+  // Real, named businesses of this type (deduped, "(unnamed)" ones skipped).
+  examples: string[];
+}
+
+const MAX_EXAMPLES = 4;
+
 export function computeCategoryStats(places: Place[]): CategoryStat[] {
-  const groups = new Map<
-    string,
-    { count: number; ratingSum: number; ratedCount: number; totalReviews: number }
-  >();
+  const groups = new Map<string, Group>();
 
   for (const place of places) {
     const key = place.primaryCategory;
-    const existing = groups.get(key) || {
+    const existing: Group = groups.get(key) || {
       count: 0,
       ratingSum: 0,
       ratedCount: 0,
       totalReviews: 0,
+      examples: [],
     };
 
     existing.count++;
@@ -29,6 +38,17 @@ export function computeCategoryStats(places: Place[]): CategoryStat[] {
       existing.ratedCount++;
     }
     existing.totalReviews += place.userRatingsTotal ?? place.reviews.length;
+
+    // Keep a few real names; ignore placeholder "(unnamed)" entries.
+    const named = !/\(unnamed\)/i.test(place.name);
+    if (
+      named &&
+      existing.examples.length < MAX_EXAMPLES &&
+      !existing.examples.includes(place.name)
+    ) {
+      existing.examples.push(place.name);
+    }
+
     groups.set(key, existing);
   }
 
@@ -42,6 +62,7 @@ export function computeCategoryStats(places: Place[]): CategoryStat[] {
         : null,
       totalReviews: g.totalReviews,
       saturation: "medium", // placeholder, assigned below
+      examples: g.examples,
     });
   }
 

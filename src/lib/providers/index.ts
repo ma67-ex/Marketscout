@@ -10,6 +10,7 @@ import { createGeocodingProvider } from "@/lib/providers/geocoding";
 import { createPlacesProvider } from "@/lib/providers/places";
 import { createRedditProvider } from "@/lib/providers/reddit";
 import { createReviewsProvider } from "@/lib/providers/reviews";
+import { createContextProvider } from "@/lib/providers/context";
 import { createAIProvider } from "@/lib/providers/ai";
 
 export function getProviders(): ProviderBundle {
@@ -21,6 +22,7 @@ export function getProviders(): ProviderBundle {
     places: createPlacesProvider(config, mock.places),
     reddit: createRedditProvider(config, mock.reddit),
     reviews: createReviewsProvider(config, mock.reviews),
+    context: createContextProvider(config, mock.context),
     ai: createAIProvider(config, mock.ai),
     usingMock: mock.usingSampleData,
   };

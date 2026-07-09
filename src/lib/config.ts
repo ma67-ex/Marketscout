@@ -76,6 +76,7 @@ export interface MockDecisions {
   places: boolean;
   reddit: boolean;
   reviews: boolean;
+  context: boolean;
   ai: boolean;
   // True only when the underlying FACTS (places/reviews/posts) are sample
   // data rather than real. AI running as a template over real data does not
@@ -89,12 +90,14 @@ export function resolveMockDecisions(config: AppConfig): MockDecisions {
   const places = force;
   const reddit = force;
   const reviews = force;
+  const context = force;
   const ai = force || !config.ai.apiKey;
   return {
     geocoding,
     places,
     reddit,
     reviews,
+    context,
     ai,
     usingSampleData: geocoding || places || reddit,
   };
