@@ -73,9 +73,14 @@ export default function RotatingEarth({
     const context = canvas.getContext("2d");
     if (!context) return;
 
-    // Set up responsive dimensions.
-    const containerWidth = Math.min(width, window.innerWidth - 40);
-    const containerHeight = Math.min(height, window.innerHeight - 100);
+    // Set up responsive dimensions. Fall back to the requested size when the
+    // window reports 0 (can happen if the effect runs before layout), and
+    // floor both dimensions so the derived radius can never go <= 0 -- a
+    // negative radius makes canvas arc() throw and blanks the globe.
+    const viewportWidth = window.innerWidth || width;
+    const viewportHeight = window.innerHeight || height;
+    const containerWidth = Math.max(240, Math.min(width, viewportWidth - 40));
+    const containerHeight = Math.max(240, Math.min(height, viewportHeight - 100));
     const radius = Math.min(containerWidth, containerHeight) / 2.5;
     baseRadiusRef.current = radius;
 
@@ -261,7 +266,8 @@ export default function RotatingEarth({
 
         render();
         setIsLoading(false);
-      } catch {
+      } catch (err) {
+        console.error("[globe] load failed:", err);
         setError("Failed to load land map data");
         setIsLoading(false);
       }

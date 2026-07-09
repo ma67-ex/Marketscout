@@ -1,8 +1,12 @@
 import type { Place, CategoryStat, Saturation } from "@/lib/types";
 
-// Saturation assignment: group all categories by count, split into terciles.
-// Top third = "high", middle third = "medium", bottom third = "low".
-// If all categories have the same count, everything is "medium".
+// Saturation reflects how many providers a category has in the scanned area:
+//   1 provider  -> low    (clear room to enter)
+//   2-4         -> medium
+//   5+          -> high   (already crowded)
+// Absolute thresholds are used instead of percentiles because real-world
+// category counts are heavily tied (lots of singletons), which collapses a
+// tercile split into a single "medium" bucket and hides genuine saturation.
 
 export function computeCategoryStats(places: Place[]): CategoryStat[] {
   const groups = new Map<
@@ -44,27 +48,15 @@ export function computeCategoryStats(places: Place[]): CategoryStat[] {
   // Sort by count descending for the output.
   stats.sort((a, b) => b.count - a.count);
 
-  // Assign saturation by tercile ranking.
-  if (stats.length > 0) {
-    const counts = stats.map((s) => s.count).sort((a, b) => a - b);
-    const p33 = counts[Math.floor(counts.length / 3)];
-    const p66 = counts[Math.floor((counts.length * 2) / 3)];
-
-    for (const stat of stats) {
-      stat.saturation = assignSaturation(stat.count, p33, p66);
-    }
+  for (const stat of stats) {
+    stat.saturation = assignSaturation(stat.count);
   }
 
   return stats;
 }
 
-function assignSaturation(
-  count: number,
-  p33: number,
-  p66: number,
-): Saturation {
-  if (p33 === p66) return "medium";
-  if (count > p66) return "high";
-  if (count <= p33) return "low";
-  return "medium";
+function assignSaturation(count: number): Saturation {
+  if (count >= 5) return "high";
+  if (count >= 2) return "medium";
+  return "low";
 }

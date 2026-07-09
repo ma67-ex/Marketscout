@@ -4,14 +4,29 @@ import type { NextConfig } from "next";
 // - 'unsafe-inline' for scripts/styles is required by Next.js hydration and
 //   Tailwind's inline style injection without a nonce setup. If you later add
 //   middleware, switch to nonce-based CSP and drop 'unsafe-inline'.
-// - connect-src is 'self' because all external API calls happen server-side.
+// - 'unsafe-eval' is added in DEVELOPMENT ONLY: Next.js dev mode and React
+//   DevTools use eval() for fast refresh and callstack reconstruction. It is
+//   never emitted in production, so the deployed policy stays strict.
+// - connect-src includes ws:/wss: in development for the hot-reload socket;
+//   in production everything is same-origin because external calls are
+//   server-side.
+const isDev = process.env.NODE_ENV !== "production";
+
+const scriptSrc = isDev
+  ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
+  : "script-src 'self' 'unsafe-inline'";
+
+const connectSrc = isDev
+  ? "connect-src 'self' ws: wss:"
+  : "connect-src 'self'";
+
 const csp = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  scriptSrc,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  "connect-src 'self'",
+  connectSrc,
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
