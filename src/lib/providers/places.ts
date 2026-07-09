@@ -23,16 +23,18 @@ export function createPlacesProvider(
       const radius = opts?.radiusMeters ?? config.places.radiusMeters;
       const limit = opts?.limit ?? config.places.maxPlaces;
 
-      // Overpass QL: find nodes/ways tagged as amenity or shop within radius.
+      // Overpass QL: businesses and services within radius. Nodes only, and
+      // capped server-side -- fetching ways/relations with `out center` is far
+      // slower and frequently times out on the free mirrors, especially in
+      // dense cities. Named POIs are overwhelmingly mapped as nodes, so this
+      // keeps the analysis representative while staying fast worldwide.
       const query = `
-        [out:json][timeout:25];
+        [out:json][timeout:20];
         (
           node["amenity"](around:${radius},${location.lat},${location.lng});
           node["shop"](around:${radius},${location.lat},${location.lng});
-          way["amenity"](around:${radius},${location.lat},${location.lng});
-          way["shop"](around:${radius},${location.lat},${location.lng});
         );
-        out center ${limit};
+        out ${limit};
       `;
 
       const data = await queryOverpass(query);
@@ -62,7 +64,9 @@ async function queryOverpass(query: string): Promise<OverpassResponse> {
           "User-Agent": "MarketScout/0.1 (local analysis tool)",
         },
         body: `data=${encodeURIComponent(query)}`,
-        signal: AbortSignal.timeout(30_000),
+        // Fail over to the next mirror quickly rather than hanging on one
+        // overloaded server. The Overpass-side [timeout:20] bounds the work.
+        signal: AbortSignal.timeout(22_000),
       });
 
       if (res.ok) {

@@ -46,7 +46,9 @@ export function getConfig(): AppConfig {
       radiusMeters: envInt("MARKET_SCOUT_RADIUS_METERS", 2500),
     },
     places: {
-      radiusMeters: envInt("MARKET_SCOUT_RADIUS_METERS", 2500),
+      // 2 km keeps dense-city queries light enough for the free Overpass
+      // mirrors to answer quickly, while still covering a local catchment.
+      radiusMeters: envInt("MARKET_SCOUT_RADIUS_METERS", 2000),
       maxPlaces: envInt("MARKET_SCOUT_MAX_PLACES", 40),
     },
     reddit: {
