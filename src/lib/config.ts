@@ -38,6 +38,15 @@ export interface AppConfig {
     apiKey?: string;
     model: string;
   };
+  // FreeLLMAPI (self-hosted, github.com/tashfeenahmed/freellmapi). Local
+  // proxy aggregating free tiers from Groq/Google/etc behind one
+  // OpenAI-compatible endpoint. Preferred over Gemini/Anthropic when set,
+  // since it's the most capable free option once the local proxy is running.
+  freeLlmApi: {
+    apiKey?: string;
+    baseUrl: string;
+    model: string;
+  };
   // Global override. Set MARKET_SCOUT_FORCE_MOCK=1 to force mock data even if
   // keys are present (useful for local development and demos).
   forceMock: boolean;
@@ -78,6 +87,13 @@ export function getConfig(): AppConfig {
       model:
         process.env.MARKET_SCOUT_GOOGLE_MODEL?.trim() || "gemini-2.5-flash",
     },
+    freeLlmApi: {
+      apiKey: process.env.FREELLMAPI_API_KEY?.trim() || undefined,
+      baseUrl:
+        process.env.FREELLMAPI_BASE_URL?.trim() ||
+        "http://localhost:3001/v1",
+      model: process.env.FREELLMAPI_MODEL?.trim() || "auto",
+    },
     forceMock: process.env.MARKET_SCOUT_FORCE_MOCK === "1",
   };
 }
@@ -106,7 +122,9 @@ export function resolveMockDecisions(config: AppConfig): MockDecisions {
   const reddit = force;
   const reviews = force;
   const context = force;
-  const ai = force || (!config.google.apiKey && !config.ai.apiKey);
+  const ai =
+    force ||
+    (!config.freeLlmApi.apiKey && !config.google.apiKey && !config.ai.apiKey);
   return {
     geocoding,
     places,

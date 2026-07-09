@@ -12,6 +12,13 @@ export function createAIProvider(
     return { synthesize: mockSynthesize };
   }
 
+  // FreeLLMAPI (local proxy aggregating free-tier providers) is preferred
+  // when configured -- it's the most capable free option and doesn't depend
+  // on any single provider's quota.
+  if (config.freeLlmApi.apiKey) {
+    return { synthesize: (input) => synthesizeWithFreeLlmApi(config, input) };
+  }
+
   // Gemini (Google AI Studio) is genuinely free with no card, so it's the
   // realistic option most users actually have -- prefer it over Anthropic
   // when both are configured.
@@ -48,6 +55,56 @@ async function synthesizeWithClaude(
   }
 
   return parseSynthesisJson(textBlock.text, input.mode);
+}
+
+async function synthesizeWithFreeLlmApi(
+  config: AppConfig,
+  input: AISynthesisInput,
+): Promise<AISynthesisOutput> {
+  const res = await fetch(`${config.freeLlmApi.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.freeLlmApi.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.freeLlmApi.model,
+      temperature: 0.7,
+      max_tokens: 2048,
+      // Ask for strict JSON mode -- routed models (e.g. Groq's Llama) don't
+      // reliably follow a text-only instruction to skip markdown fences.
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: buildSystemPrompt(input.mode) },
+        { role: "user", content: buildUserPrompt(input) },
+      ],
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  if (!res.ok) {
+    if (res.status === 429) {
+      throw new Error(
+        "FreeLLMAPI's free-tier rate limit was hit. Wait a moment and try again.",
+      );
+    }
+    const body = await res.text().catch(() => "");
+    throw new Error(
+      `FreeLLMAPI request failed: ${res.status} ${res.statusText} ${body.slice(0, 200)}`,
+    );
+  }
+
+  const data = (await res.json()) as FreeLlmApiResponse;
+  const text = data.choices?.[0]?.message?.content ?? "";
+  if (!text) {
+    throw new Error("FreeLLMAPI returned no text content.");
+  }
+
+  return parseSynthesisJson(text, input.mode);
+}
+
+interface FreeLlmApiResponse {
+  choices?: Array<{ message?: { content?: string } }>;
 }
 
 async function synthesizeWithGemini(
@@ -112,7 +169,19 @@ function parseSynthesisJson(rawText: string, mode: AnalysisMode): AISynthesisOut
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error("AI returned invalid JSON.");
+    // Some routed/smaller models ignore the "no commentary" instruction and
+    // prepend reasoning before the JSON object -- fall back to extracting the
+    // outermost {...} span instead of failing outright.
+    const start = raw.indexOf("{");
+    const end = raw.lastIndexOf("}");
+    if (start === -1 || end === -1 || end <= start) {
+      throw new Error("AI returned invalid JSON.");
+    }
+    try {
+      parsed = JSON.parse(raw.slice(start, end + 1));
+    } catch {
+      throw new Error("AI returned invalid JSON.");
+    }
   }
 
   const summary = typeof parsed.summary === "string" ? parsed.summary : "";

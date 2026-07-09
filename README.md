@@ -47,8 +47,13 @@ until you add keys:
 cp .env.example .env.local
 # then fill in what you have:
 # REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET  (free at reddit.com/prefs/apps)
-# ANTHROPIC_API_KEY                        (for Claude-written synthesis)
+# GEMINI_API_KEY                           (free, Google AI Studio)
+# FREELLMAPI_API_KEY                       (self-hosted, github.com/tashfeenahmed/freellmapi)
+# ANTHROPIC_API_KEY                        (paid, Claude-written synthesis)
 ```
+
+`.env.local` is gitignored, so real keys never get committed -- only the
+key-free `.env.example` template is tracked.
 
 Each provider switches from sample to live automatically when its key is
 present. Set `MARKET_SCOUT_FORCE_MOCK=1` to demo fully offline.
