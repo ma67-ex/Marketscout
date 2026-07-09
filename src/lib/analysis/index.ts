@@ -1,4 +1,11 @@
-import type { CategoryStat, DemandSignal, MarketGap, Place, RedditPost } from "@/lib/types";
+import type {
+  CategoryStat,
+  DemandSignal,
+  MarketGap,
+  Place,
+  PlaceReview,
+  RedditPost,
+} from "@/lib/types";
 import { computeCategoryStats } from "./categories";
 import { mineDemandSignals } from "./demand";
 import { computeMarketGaps } from "./gaps";
@@ -12,9 +19,15 @@ export interface AnalysisResult {
 export function runAnalysis(input: {
   places: Place[];
   redditPosts: RedditPost[];
+  // Keyless area-level reviews (e.g. Mangrove) folded into demand mining.
+  externalReviews?: PlaceReview[];
 }): AnalysisResult {
   const categoryStats = computeCategoryStats(input.places);
-  const demandSignals = mineDemandSignals(input.places, input.redditPosts);
+  const demandSignals = mineDemandSignals(
+    input.places,
+    input.redditPosts,
+    input.externalReviews ?? [],
+  );
   const marketGaps = computeMarketGaps(
     categoryStats,
     demandSignals,

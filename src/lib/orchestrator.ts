@@ -32,19 +32,22 @@ export async function analyze(request: AnalysisRequest): Promise<AnalysisReport>
   // 1. Resolve the free-text location to coordinates.
   const location = await providers.geocoding.geocode(request.location);
 
-  // 2. Gather supply and demand concurrently.
-  const [places, redditPosts] = await Promise.all([
+  // 2. Gather supply (places) and demand (reddit + keyless public reviews)
+  //    concurrently.
+  const [places, redditPosts, externalReviews] = await Promise.all([
     providers.places.nearby(location),
     providers.reddit.search(
       location,
       buildRedditKeywords(location.city, location.region, request.fieldOfStudy),
     ),
+    providers.reviews.nearby(location),
   ]);
 
   // 3. Turn raw data into structured signals.
   const { categoryStats, demandSignals, marketGaps } = runAnalysis({
     places,
     redditPosts,
+    externalReviews,
   });
 
   // 4. Have the AI layer write the human-facing synthesis.
@@ -58,7 +61,9 @@ export async function analyze(request: AnalysisRequest): Promise<AnalysisReport>
     marketGaps,
   });
 
-  const reviewsCount = places.reduce((sum, p) => sum + p.reviews.length, 0);
+  const reviewsCount =
+    places.reduce((sum, p) => sum + p.reviews.length, 0) +
+    externalReviews.length;
 
   // 5. Assemble the report, including provenance so the UI can be honest about
   //    where the conclusions came from.

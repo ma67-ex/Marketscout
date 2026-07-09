@@ -14,6 +14,7 @@ import type {
   ImprovementReport,
   MarketGap,
   Place,
+  PlaceReview,
   RedditPost,
 } from "@/lib/types";
 
@@ -48,6 +49,20 @@ export interface RedditProvider {
   ): Promise<RedditPost[]>;
 }
 
+export interface ReviewsSearchOptions {
+  limit?: number;
+}
+
+export interface ReviewsProvider {
+  // Keyless public reviews for the area (Mangrove Reviews open dataset).
+  // Returns an area-level corpus of real review text; empty where there is no
+  // coverage. Never throws -- a failure just yields no reviews.
+  nearby(
+    location: GeoLocation,
+    opts?: ReviewsSearchOptions,
+  ): Promise<PlaceReview[]>;
+}
+
 // Input the AI layer needs to write its synthesis. This is the analysis
 // engine's output plus the original request context.
 export interface AISynthesisInput {
@@ -77,6 +92,7 @@ export interface ProviderBundle {
   geocoding: GeocodingProvider;
   places: PlacesProvider;
   reddit: RedditProvider;
+  reviews: ReviewsProvider;
   ai: AIProvider;
   usingMock: boolean;
 }

@@ -17,15 +17,6 @@ export interface AppConfig {
     radiusMeters: number;
     maxPlaces: number;
   };
-  // Optional: Yelp Fusion (free tier). When a key is present, places come from
-  // Yelp instead of OSM -- real ratings, review counts, and review excerpts.
-  // Falls back to OSM automatically where Yelp has no coverage.
-  yelp: {
-    apiKey?: string;
-    // How many of the busiest businesses to pull review excerpts for. Kept
-    // small to stay well within Yelp's free-tier rate limits.
-    reviewFetchCount: number;
-  };
   reddit: {
     clientId?: string;
     clientSecret?: string;
@@ -60,10 +51,6 @@ export function getConfig(): AppConfig {
       radiusMeters: envInt("MARKET_SCOUT_RADIUS_METERS", 2000),
       maxPlaces: envInt("MARKET_SCOUT_MAX_PLACES", 40),
     },
-    yelp: {
-      apiKey: process.env.YELP_API_KEY?.trim() || undefined,
-      reviewFetchCount: envInt("MARKET_SCOUT_YELP_REVIEWS", 6),
-    },
     reddit: {
       clientId: process.env.REDDIT_CLIENT_ID?.trim() || undefined,
       clientSecret: process.env.REDDIT_CLIENT_SECRET?.trim() || undefined,
@@ -88,6 +75,7 @@ export interface MockDecisions {
   geocoding: boolean;
   places: boolean;
   reddit: boolean;
+  reviews: boolean;
   ai: boolean;
   // True only when the underlying FACTS (places/reviews/posts) are sample
   // data rather than real. AI running as a template over real data does not
@@ -100,11 +88,13 @@ export function resolveMockDecisions(config: AppConfig): MockDecisions {
   const geocoding = force;
   const places = force;
   const reddit = force;
+  const reviews = force;
   const ai = force || !config.ai.apiKey;
   return {
     geocoding,
     places,
     reddit,
+    reviews,
     ai,
     usingSampleData: geocoding || places || reddit,
   };

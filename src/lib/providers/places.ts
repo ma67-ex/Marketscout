@@ -28,11 +28,18 @@ export function createPlacesProvider(
       // slower and frequently times out on the free mirrors, especially in
       // dense cities. Named POIs are overwhelmingly mapped as nodes, so this
       // keeps the analysis representative while staying fast worldwide.
+      //
+      // The amenity filter excludes high-volume street furniture (benches,
+      // parking, waste baskets, ...). In a city like London these outnumber
+      // real businesses many times over, and scanning them all is what makes
+      // the free mirrors time out. Dropping them speeds the query up sharply
+      // and also removes noise from the category analysis.
+      const around = `(around:${radius},${location.lat},${location.lng})`;
       const query = `
         [out:json][timeout:20];
         (
-          node["amenity"](around:${radius},${location.lat},${location.lng});
-          node["shop"](around:${radius},${location.lat},${location.lng});
+          node["amenity"]["amenity"!~"${AMENITY_EXCLUDE}"]${around};
+          node["shop"]${around};
         );
         out ${limit};
       `;
@@ -42,6 +49,35 @@ export function createPlacesProvider(
     },
   };
 }
+
+// High-volume, non-business amenity values to exclude from the query. These
+// are street furniture and infrastructure that swamp dense cities and carry
+// no market-analysis signal. Written as an Overpass regex alternation.
+const AMENITY_EXCLUDE = [
+  "bench",
+  "waste_basket",
+  "waste_disposal",
+  "bicycle_parking",
+  "motorcycle_parking",
+  "parking",
+  "parking_space",
+  "parking_entrance",
+  "recycling",
+  "drinking_water",
+  "fountain",
+  "post_box",
+  "telephone",
+  "shelter",
+  "clock",
+  "vending_machine",
+  "charging_station",
+  "bicycle_repair_station",
+  "grave_yard",
+  "hunting_stand",
+  "taxi",
+  "bbq",
+  "street_lamp",
+].join("|");
 
 // The free public Overpass servers rate-limit and occasionally time out, so
 // try each mirror in turn and only fail if all of them do.

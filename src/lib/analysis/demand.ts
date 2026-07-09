@@ -1,4 +1,4 @@
-import type { Place, RedditPost, DemandSignal, Sentiment } from "@/lib/types";
+import type { Place, PlaceReview, RedditPost, DemandSignal, Sentiment } from "@/lib/types";
 import { scoreSentiment, extractThemes } from "./sentiment";
 
 // Walk every review and reddit post, extract themes and sentiment, then
@@ -19,6 +19,7 @@ interface ThemeAccumulator {
 export function mineDemandSignals(
   places: Place[],
   redditPosts: RedditPost[],
+  externalReviews: PlaceReview[] = [],
 ): DemandSignal[] {
   const accumulators = new Map<string, ThemeAccumulator>();
 
@@ -67,6 +68,11 @@ export function mineDemandSignals(
     for (const review of place.reviews) {
       processText(review.text, "reviews");
     }
+  }
+
+  // Process the keyless area-level review corpus (e.g. Mangrove) the same way.
+  for (const review of externalReviews) {
+    processText(review.text, "reviews");
   }
 
   // Process reddit posts (title + body combined).
