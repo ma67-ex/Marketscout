@@ -53,8 +53,13 @@ function envInt(name: string, fallback: number): number {
  * Check (and consume) one request against the fixed-window limit for `key`.
  *
  * Reads config from env at call time:
- *   MARKET_SCOUT_RATE_LIMIT      (default 20)    -- max requests per window per key
+ *   MARKET_SCOUT_RATE_LIMIT      (default 10)    -- max requests per window per key
  *   MARKET_SCOUT_RATE_WINDOW_MS  (default 60000) -- window length in ms
+ * The default of 10/min is deliberately tight: the only caller relying on it
+ * is POST /api/analyze, which fans out to up to four external services (and
+ * optionally an LLM) per request, so its abuse budget needs to be tighter
+ * than a typical read endpoint. Real usage never needs more than a handful
+ * of analyses a minute.
  * Setting MARKET_SCOUT_RATE_LIMIT <= 0 disables limiting entirely (always
  * allowed) -- useful for local dev/testing.
  *
@@ -67,7 +72,7 @@ export function checkRateLimit(
   key: string,
   override?: { limit: number; windowMs: number },
 ): RateLimitResult {
-  const limit = override?.limit ?? envInt("MARKET_SCOUT_RATE_LIMIT", 20);
+  const limit = override?.limit ?? envInt("MARKET_SCOUT_RATE_LIMIT", 10);
   const windowMs =
     override?.windowMs ?? envInt("MARKET_SCOUT_RATE_WINDOW_MS", 60_000);
   const now = Date.now();

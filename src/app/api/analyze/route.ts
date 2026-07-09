@@ -8,6 +8,7 @@ import { NextResponse } from "next/server";
 import { analyze } from "@/lib/orchestrator";
 import { parseAnalysisRequest } from "@/lib/validation";
 import { checkRateLimit, getClientKey } from "@/lib/rate-limit";
+import { isSameOriginRequest, botBlockedResponse } from "@/lib/bot-control";
 
 // The AI and outbound HTTP calls need the Node runtime, not the edge.
 export const runtime = "nodejs";
@@ -18,9 +19,16 @@ export const dynamic = "force-dynamic";
 const MAX_BODY_BYTES = 4 * 1024;
 
 export async function POST(request: Request) {
+  // --- Bot barrier: reject anything that didn't come from our own page ---
+  // Cheap header check, so it runs before we touch the rate limiter's state
+  // or do any work -- see lib/bot-control for what this catches and why.
+  if (!isSameOriginRequest(request)) {
+    return botBlockedResponse();
+  }
+
   // --- Rate limit (per client IP, fixed window from env; see lib/rate-limit) ---
   // Each analysis fans out to external APIs and an LLM call, so this is the
-  // first line of defense against unauthenticated abuse fanning that out.
+  // second line of defense against unauthenticated abuse fanning that out.
   const rlKey = `analyze:${getClientKey(request)}`;
   const rl = checkRateLimit(rlKey);
   if (!rl.allowed) {

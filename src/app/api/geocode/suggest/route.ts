@@ -9,6 +9,7 @@
 
 import { NextResponse } from "next/server";
 import { checkRateLimit, clientKeyFrom } from "@/lib/rate-limit";
+import { isSameOriginRequest, botBlockedResponse } from "@/lib/bot-control";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +32,13 @@ export interface LocationSuggestion {
 }
 
 export async function GET(request: Request) {
+  // Bot barrier first (see lib/bot-control): this proxies Nominatim, whose
+  // usage policy can get our shared User-Agent rate-limited or banned if a
+  // script hammers it through us.
+  if (!isSameOriginRequest(request)) {
+    return botBlockedResponse();
+  }
+
   const rate = checkRateLimit(`suggest:${clientKeyFrom(request)}`, RATE_LIMIT);
   if (!rate.allowed) {
     return NextResponse.json(
