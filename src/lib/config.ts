@@ -17,6 +17,15 @@ export interface AppConfig {
     radiusMeters: number;
     maxPlaces: number;
   };
+  // Optional: Yelp Fusion (free tier). When a key is present, places come from
+  // Yelp instead of OSM -- real ratings, review counts, and review excerpts.
+  // Falls back to OSM automatically where Yelp has no coverage.
+  yelp: {
+    apiKey?: string;
+    // How many of the busiest businesses to pull review excerpts for. Kept
+    // small to stay well within Yelp's free-tier rate limits.
+    reviewFetchCount: number;
+  };
   reddit: {
     clientId?: string;
     clientSecret?: string;
@@ -50,6 +59,10 @@ export function getConfig(): AppConfig {
       // mirrors to answer quickly, while still covering a local catchment.
       radiusMeters: envInt("MARKET_SCOUT_RADIUS_METERS", 2000),
       maxPlaces: envInt("MARKET_SCOUT_MAX_PLACES", 40),
+    },
+    yelp: {
+      apiKey: process.env.YELP_API_KEY?.trim() || undefined,
+      reviewFetchCount: envInt("MARKET_SCOUT_YELP_REVIEWS", 6),
     },
     reddit: {
       clientId: process.env.REDDIT_CLIENT_ID?.trim() || undefined,
