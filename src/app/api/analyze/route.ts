@@ -7,28 +7,32 @@
 import { NextResponse } from "next/server";
 import { analyze } from "@/lib/orchestrator";
 import { parseAnalysisRequest } from "@/lib/validation";
-import { checkRateLimit, clientKeyFrom } from "@/lib/rate-limit";
+import { checkRateLimit, getClientKey } from "@/lib/rate-limit";
 
 // The AI and outbound HTTP calls need the Node runtime, not the edge.
 export const runtime = "nodejs";
 // This endpoint is always computed fresh per request.
 export const dynamic = "force-dynamic";
 
-// Each analysis fans out to external APIs and an LLM call, so keep this tight.
-const RATE_LIMIT = { limit: 10, windowMs: 60_000 };
-
 // The valid payload is a few short strings; anything near this size is abuse.
 const MAX_BODY_BYTES = 4 * 1024;
 
 export async function POST(request: Request) {
-  // --- Rate limit (per client IP, fixed 1-minute window) ---
-  const rate = checkRateLimit(clientKeyFrom(request), RATE_LIMIT);
-  if (!rate.allowed) {
+  // --- Rate limit (per client IP, fixed window from env; see lib/rate-limit) ---
+  // Each analysis fans out to external APIs and an LLM call, so this is the
+  // first line of defense against unauthenticated abuse fanning that out.
+  const rlKey = `analyze:${getClientKey(request)}`;
+  const rl = checkRateLimit(rlKey);
+  if (!rl.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Please wait a moment and try again." },
       {
         status: 429,
-        headers: { "Retry-After": String(rate.retryAfterSeconds) },
+        headers: {
+          "Retry-After": String(rl.retryAfterSeconds),
+          "X-RateLimit-Limit": String(rl.limit),
+          "X-RateLimit-Remaining": String(rl.remaining),
+        },
       },
     );
   }

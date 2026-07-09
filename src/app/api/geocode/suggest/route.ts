@@ -31,7 +31,7 @@ export interface LocationSuggestion {
 }
 
 export async function GET(request: Request) {
-  const rate = checkRateLimit(clientKeyFrom(request), RATE_LIMIT);
+  const rate = checkRateLimit(`suggest:${clientKeyFrom(request)}`, RATE_LIMIT);
   if (!rate.allowed) {
     return NextResponse.json(
       { suggestions: [] },
