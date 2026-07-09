@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { AppConfig } from "@/lib/config";
 import type { AIProvider, AISynthesisInput, AISynthesisOutput } from "@/lib/providers/contracts";
-import type { BusinessRecommendation, CategoryStat, ImprovementReport, Saturation } from "@/lib/types";
+import type { AnalysisMode, BusinessRecommendation, CategoryStat, ImprovementReport, Saturation } from "@/lib/types";
 import { buildSystemPrompt, buildUserPrompt } from "@/lib/prompt";
 
 export function createAIProvider(
@@ -12,51 +12,125 @@ export function createAIProvider(
     return { synthesize: mockSynthesize };
   }
 
-  const client = new Anthropic({ apiKey: config.ai.apiKey });
+  // Gemini (Google AI Studio) is genuinely free with no card, so it's the
+  // realistic option most users actually have -- prefer it over Anthropic
+  // when both are configured.
+  if (config.google.apiKey) {
+    return { synthesize: (input) => synthesizeWithGemini(config, input) };
+  }
 
-  return {
-    async synthesize(input) {
-      const response = await client.messages.create({
-        model: config.ai.model,
-        max_tokens: 2048,
-        system: buildSystemPrompt(input.mode),
-        messages: [{ role: "user", content: buildUserPrompt(input) }],
-      });
+  if (config.ai.apiKey) {
+    const client = new Anthropic({ apiKey: config.ai.apiKey });
+    return { synthesize: (input) => synthesizeWithClaude(client, config, input) };
+  }
 
-      const textBlock = response.content.find((b) => b.type === "text");
-      if (!textBlock || textBlock.type !== "text") {
-        throw new Error("AI returned no text content.");
-      }
+  // Defensive fallback: resolveMockDecisions ties `useMock` to "no key
+  // present", so this should be unreachable, but never fail a request over
+  // a config mismatch -- degrade to the template instead.
+  return { synthesize: mockSynthesize };
+}
 
-      let raw = textBlock.text.trim();
-      // Strip accidental markdown fences.
-      raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+async function synthesizeWithClaude(
+  client: Anthropic,
+  config: AppConfig,
+  input: AISynthesisInput,
+): Promise<AISynthesisOutput> {
+  const response = await client.messages.create({
+    model: config.ai.model,
+    max_tokens: 2048,
+    system: buildSystemPrompt(input.mode),
+    messages: [{ role: "user", content: buildUserPrompt(input) }],
+  });
 
-      let parsed: Record<string, unknown>;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        throw new Error("AI returned invalid JSON.");
-      }
+  const textBlock = response.content.find((b) => b.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    throw new Error("Claude returned no text content.");
+  }
 
-      const summary = typeof parsed.summary === "string" ? parsed.summary : "";
-      const output: AISynthesisOutput = { summary };
+  return parseSynthesisJson(textBlock.text, input.mode);
+}
 
-      if (input.mode === "opportunity" && Array.isArray(parsed.recommendations)) {
-        output.recommendations = (parsed.recommendations as Record<string, unknown>[]).map(
-          coerceRecommendation,
-        );
-      }
+async function synthesizeWithGemini(
+  config: AppConfig,
+  input: AISynthesisInput,
+): Promise<AISynthesisOutput> {
+  const model = config.google.model;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${config.google.apiKey}`;
 
-      if (input.mode === "improve" && parsed.improvementReport) {
-        output.improvementReport = coerceImprovementReport(
-          parsed.improvementReport as Record<string, unknown>,
-        );
-      }
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: buildSystemPrompt(input.mode) }] },
+      contents: [{ role: "user", parts: [{ text: buildUserPrompt(input) }] }],
+      generationConfig: {
+        // Gemini can enforce JSON output directly, which is more reliable
+        // than asking nicely in the prompt.
+        response_mime_type: "application/json",
+        temperature: 0.7,
+        maxOutputTokens: 2048,
+      },
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
 
-      return output;
-    },
-  };
+  if (!res.ok) {
+    if (res.status === 429) {
+      throw new Error(
+        "Gemini's free-tier rate limit was hit. Wait a moment and try again.",
+      );
+    }
+    const body = await res.text().catch(() => "");
+    throw new Error(
+      `Gemini request failed: ${res.status} ${res.statusText} ${body.slice(0, 200)}`,
+    );
+  }
+
+  const data = (await res.json()) as GeminiResponse;
+  const text =
+    data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+  if (!text) {
+    throw new Error("Gemini returned no text content.");
+  }
+
+  return parseSynthesisJson(text, input.mode);
+}
+
+interface GeminiResponse {
+  candidates?: Array<{
+    content?: { parts?: Array<{ text?: string }> };
+  }>;
+}
+
+// Shared by both real providers: strip accidental markdown fences, parse the
+// model's JSON, and defensively coerce it into our types.
+function parseSynthesisJson(rawText: string, mode: AnalysisMode): AISynthesisOutput {
+  let raw = rawText.trim();
+  raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("AI returned invalid JSON.");
+  }
+
+  const summary = typeof parsed.summary === "string" ? parsed.summary : "";
+  const output: AISynthesisOutput = { summary };
+
+  if (mode === "opportunity" && Array.isArray(parsed.recommendations)) {
+    output.recommendations = (parsed.recommendations as Record<string, unknown>[]).map(
+      coerceRecommendation,
+    );
+  }
+
+  if (mode === "improve" && parsed.improvementReport) {
+    output.improvementReport = coerceImprovementReport(
+      parsed.improvementReport as Record<string, unknown>,
+    );
+  }
+
+  return output;
 }
 
 // ---------------------------------------------------------------------------

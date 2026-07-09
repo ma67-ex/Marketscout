@@ -1,11 +1,15 @@
 // Runtime configuration.
 //
 // Geocoding, places, and Reddit run live with zero keys (Nominatim, Overpass,
-// and Reddit's public search are all free and unauthenticated). Only the
-// AI-written synthesis needs a key (ANTHROPIC_API_KEY) -- without one it
-// falls back to a template that still describes the live data accurately,
-// just without LLM-generated prose. Set MARKET_SCOUT_FORCE_MOCK=1 to force
-// fully offline sample data instead (useful for demos with no network).
+// and Reddit's public search are all free and unauthenticated). The
+// AI-written synthesis needs a key from ONE of two places -- without either,
+// it falls back to a template that still describes the live data accurately,
+// just without LLM-generated prose:
+//   - GEMINI_API_KEY: Google AI Studio, genuinely free tier, no card needed.
+//     Preferred when present, since this is the realistic free option.
+//   - ANTHROPIC_API_KEY: Claude, paid. Used when no Gemini key is set.
+// Set MARKET_SCOUT_FORCE_MOCK=1 to force fully offline sample data instead
+// (useful for demos with no network).
 
 export interface AppConfig {
   // Free geocoding via Nominatim (OpenStreetMap). No API key needed.
@@ -25,6 +29,12 @@ export interface AppConfig {
     maxPosts: number;
   };
   ai: {
+    apiKey?: string;
+    model: string;
+  };
+  // Google AI Studio (Gemini). Genuinely free, no card -- preferred over `ai`
+  // (Anthropic) when both are configured.
+  google: {
     apiKey?: string;
     model: string;
   };
@@ -63,14 +73,19 @@ export function getConfig(): AppConfig {
       apiKey: process.env.ANTHROPIC_API_KEY?.trim() || undefined,
       model: process.env.MARKET_SCOUT_AI_MODEL?.trim() || "claude-sonnet-5",
     },
+    google: {
+      apiKey: process.env.GEMINI_API_KEY?.trim() || undefined,
+      model:
+        process.env.MARKET_SCOUT_GOOGLE_MODEL?.trim() || "gemini-2.5-flash",
+    },
     forceMock: process.env.MARKET_SCOUT_FORCE_MOCK === "1",
   };
 }
 
 // Per-provider mock decisions. Geocoding, places, and Reddit are all free and
 // keyless, so the only thing that ever forces them to mock is the explicit
-// MARKET_SCOUT_FORCE_MOCK override. AI synthesis mocks whenever no Anthropic
-// key is configured, since that is the one provider with no free live path.
+// MARKET_SCOUT_FORCE_MOCK override. AI synthesis mocks unless a Gemini or
+// Anthropic key is configured.
 export interface MockDecisions {
   geocoding: boolean;
   places: boolean;
@@ -91,7 +106,7 @@ export function resolveMockDecisions(config: AppConfig): MockDecisions {
   const reddit = force;
   const reviews = force;
   const context = force;
-  const ai = force || !config.ai.apiKey;
+  const ai = force || (!config.google.apiKey && !config.ai.apiKey);
   return {
     geocoding,
     places,
