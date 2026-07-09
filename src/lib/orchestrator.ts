@@ -60,6 +60,7 @@ export async function analyze(request: AnalysisRequest): Promise<AnalysisReport>
     categoryStats,
     demandSignals,
     marketGaps,
+    areaContext,
   });
 
   const reviewsCount =

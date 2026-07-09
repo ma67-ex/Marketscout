@@ -80,6 +80,8 @@ export interface AISynthesisInput {
   categoryStats: CategoryStat[];
   demandSignals: DemandSignal[];
   marketGaps: MarketGap[];
+  // Real, keyless background on the place (Wikipedia), when available.
+  areaContext?: AreaContext;
 }
 
 export interface AISynthesisOutput {

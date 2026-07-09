@@ -29,7 +29,7 @@ Return a JSON object with exactly this shape:
     }
   ]
 }
-Provide 2-3 recommendations. Bias toward the user's field of study. Base conclusions on the data provided, not assumptions.`;
+Provide 2-3 recommendations. Bias toward the user's field of study. Base conclusions on the data provided, not assumptions. Where a category's real nearby businesses are listed, name one or two of them by name when explaining why a gap exists or how a newcomer would stand apart (e.g. "unlike Nietzsche's and the other bars nearby") -- this is what makes the analysis feel like real local intelligence instead of generic advice. If area background is provided, let it inform the summary's sense of place (size, character, geography) without just repeating it verbatim.`;
   }
 
   return `${sharedRules}
@@ -50,7 +50,7 @@ Return a JSON object with exactly this shape:
     "strengthsToKeep": ["<string>", ...]
   }
 }
-Base conclusions on the data provided, not assumptions.`;
+Base conclusions on the data provided, not assumptions. Where a category's real nearby businesses are listed, name one or two of them by name in the relevant complaint, strength, or suggestion -- this is what makes the analysis feel like real local intelligence instead of generic advice.`;
 }
 
 // User-controlled and third-party strings get flattened to a single line,
@@ -76,11 +76,21 @@ export function buildUserPrompt(input: AISynthesisInput): string {
     parts.push(`Existing business type: ${data(input.existingBusinessType)}`);
   }
 
+  if (input.areaContext) {
+    parts.push("");
+    parts.push("--- Area background (Wikipedia) ---");
+    parts.push(data(input.areaContext.extract, 600));
+  }
+
   parts.push("");
-  parts.push("--- Category stats ---");
+  parts.push("--- Category stats (with real nearby business names) ---");
   for (const cat of input.categoryStats.slice(0, 15)) {
+    const examples =
+      cat.examples.length > 0
+        ? `; examples: ${cat.examples.map((e) => data(e, 60)).join(", ")}`
+        : "";
     parts.push(
-      `${data(cat.category, 80)}: ${cat.count} businesses, avg rating ${cat.avgRating ?? "n/a"}, saturation ${cat.saturation}`,
+      `${data(cat.category, 80)}: ${cat.count} businesses, avg rating ${cat.avgRating ?? "n/a"}, saturation ${cat.saturation}${examples}`,
     );
   }
 

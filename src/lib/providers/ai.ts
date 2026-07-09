@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { AppConfig } from "@/lib/config";
 import type { AIProvider, AISynthesisInput, AISynthesisOutput } from "@/lib/providers/contracts";
-import type { BusinessRecommendation, ImprovementReport, Saturation } from "@/lib/types";
+import type { BusinessRecommendation, CategoryStat, ImprovementReport, Saturation } from "@/lib/types";
 import { buildSystemPrompt, buildUserPrompt } from "@/lib/prompt";
 
 export function createAIProvider(
@@ -69,48 +69,91 @@ async function mockSynthesize(
 ): Promise<AISynthesisOutput> {
   const city =
     input.location.city || input.location.formattedAddress.split(",")[0];
+  const populationNote = extractPopulationNote(input.areaContext?.extract);
 
-  // Summary references real data.
+  if (input.mode === "improve") {
+    const summary = buildImproveSummary(input, city, populationNote);
+    const improvementReport = buildMockImprovementReport(input);
+    return { summary, improvementReport };
+  }
+
+  const summary = buildOpportunitySummary(input, city, populationNote);
+  const recommendations = buildMockRecommendations(input);
+  return { summary, recommendations };
+}
+
+function buildOpportunitySummary(
+  input: AISynthesisInput,
+  city: string,
+  populationNote: string | null,
+): string {
   const topCategories = input.categoryStats
     .slice(0, 3)
     .map((c) => c.category.toLowerCase());
-  const topGaps = input.marketGaps
-    .slice(0, 2)
-    .map((g) => g.category.toLowerCase());
+  const topGaps = input.marketGaps.slice(0, 2).map((g) => g.category.toLowerCase());
 
   const { adjective } = fieldAngle(input.fieldOfStudy);
   const crowded = topCategories.join(", ");
   const gaps = topGaps.join(" and ");
+  const cityClause = populationNote ? `${city} (${populationNote})` : city;
   // Seed varies the wording by the actual local data, so different areas read
   // differently instead of every report using the same skeleton sentence.
   const seed =
     input.categoryStats.length + (input.marketGaps[0]?.opportunityScore ?? 0);
 
-  const summary =
-    topGaps.length > 0
-      ? pickBy(
-          [
-            `${city} leans heavily on ${crowded}, while ${gaps} look underserved — that's where a ${adjective} newcomer could win.`,
-            `Across ${city}, ${crowded} dominate the map, but ${gaps} are noticeably thin. Your ${input.fieldOfStudy} background points to a few concrete moves.`,
-            `The data on ${city} shows a crowded field in ${crowded} and visible openings in ${gaps}. A ${adjective} approach is the real differentiator here.`,
-          ],
-          seed,
-        )
-      : pickBy(
-          [
-            `${city} looks well-served across ${crowded}, so the play is a ${adjective} angle on an existing category rather than an untapped gap.`,
-            `Most common categories in ${city} — ${crowded} — are already covered. Winning here means out-executing incumbents with a ${adjective} approach.`,
-          ],
-          seed,
-        );
+  return topGaps.length > 0
+    ? pickBy(
+        [
+          `${cityClause} leans heavily on ${crowded}, while ${gaps} look underserved — that's where a ${adjective} newcomer could win.`,
+          `Across ${cityClause}, ${crowded} dominate the map, but ${gaps} are noticeably thin. Your ${input.fieldOfStudy} background points to a few concrete moves.`,
+          `The data on ${cityClause} shows a crowded field in ${crowded} and visible openings in ${gaps}. A ${adjective} approach is the real differentiator here.`,
+        ],
+        seed,
+      )
+    : pickBy(
+        [
+          `${cityClause} looks well-served across ${crowded}, so the play is a ${adjective} angle on an existing category rather than an untapped gap.`,
+          `Most common categories in ${cityClause} — ${crowded} — are already covered. Winning here means out-executing incumbents with a ${adjective} approach.`,
+        ],
+        seed,
+      );
+}
 
-  if (input.mode === "opportunity") {
-    const recommendations = buildMockRecommendations(input);
-    return { summary, recommendations };
+function buildImproveSummary(
+  input: AISynthesisInput,
+  city: string,
+  populationNote: string | null,
+): string {
+  const businessType = input.existingBusinessType || "business";
+  const match = matchCategory(businessType, input.categoryStats);
+  const clause = match
+    ? competitorClause(match.examples, match.category, city)
+    : null;
+  // Two forms: one meant to sit mid-sentence (trailing comma, followed by
+  // more clause), one meant to end a sentence (no trailing comma).
+  const cityMid = populationNote ? `${city}, a city of ${populationNote},` : city;
+  const cityEnd = populationNote ? `${city} (${populationNote})` : city;
+  const seed =
+    input.categoryStats.length +
+    Math.round((input.demandSignals[0]?.frequency ?? 0) * 100);
+
+  if (clause) {
+    return pickBy(
+      [
+        `Running a ${businessType} in ${cityMid} means going up against ${clause}. Local sentiment points to specific things worth tightening.`,
+        `In ${cityMid} a ${businessType} competes directly with ${clause} — here's where the data says you can pull ahead.`,
+      ],
+      seed,
+    );
   }
 
-  const improvementReport = buildMockImprovementReport(input);
-  return { summary, improvementReport };
+  return pickBy(
+    [
+      `Here's what the data shows about running a ${businessType} in ${cityEnd}.`,
+      `${capitalize(businessType)}s in ${cityEnd} face a mixed picture based on local sentiment — here's the breakdown.`,
+    ],
+    seed,
+  );
 }
 
 function buildMockRecommendations(
@@ -167,7 +210,7 @@ function buildMockRecommendations(
     // differently from each other and from other locations' reports.
     const seed = gap.demandScore + gap.competitionScore + city.length;
 
-    const whyInDemand = pickBy(
+    let whyInDemand = pickBy(
       [
         `${gap.rationale} People here keep bringing up ${wanted}, and nothing in ${city} really serves it.`,
         `${gap.rationale} With ${wanted} coming up repeatedly in local chatter, there's room for a ${adjective} take.`,
@@ -175,6 +218,15 @@ function buildMockRecommendations(
       ],
       seed,
     );
+
+    // Name the real, nearby incumbents when this category already has some —
+    // this is what makes the pitch read as local intelligence instead of a
+    // generic template.
+    const competitors = competitorsIn(gap.category, input.categoryStats);
+    const competitorPhrase = competitorClause(competitors, gap.category, city);
+    if (competitorPhrase) {
+      whyInDemand += ` Right now that means ${competitorPhrase} — a ${adjective} newcomer has room to stand apart.`;
+    }
 
     return {
       name: capitalize(`${adjective} ${concept}`),
@@ -199,6 +251,86 @@ function buildMockRecommendations(
       confidence,
     };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Real-data grounding: name actual nearby businesses and pull a concrete fact
+// about the place, instead of only talking about categories in the abstract.
+// ---------------------------------------------------------------------------
+
+// Real, named businesses of a category already found in the area (empty if
+// there are none, or none were named on the source map data).
+function competitorsIn(
+  category: string,
+  categoryStats: CategoryStat[],
+): string[] {
+  const norm = category.toLowerCase();
+  const stat = categoryStats.find((c) => c.category.toLowerCase() === norm);
+  return stat?.examples ?? [];
+}
+
+// Common everyday terms that don't textually overlap with the OSM category
+// label they mean (e.g. "coffee shop" vs. "Cafe"). Checked before falling
+// back to substring matching.
+const CATEGORY_SYNONYMS: Array<[RegExp, string]> = [
+  [/coffee|espresso/, "cafe"],
+  [/\bbar\b|tavern|taproom|pub/, "bar"],
+  [/grocery|supermarket/, "supermarket"],
+  [/gym|fitness/, "fitness centre"],
+  [/vet\b|veterinary/, "veterinary"],
+  [/hair|salon/, "hairdresser"],
+  [/daycare|nursery/, "childcare"],
+];
+
+// Loosely match a free-text business type (what the user typed, e.g. "coffee
+// shop") to a real category from the map data (e.g. "Coffee shop"), so
+// improve-mode can name the user's actual local competitors.
+function matchCategory(
+  freeText: string,
+  categoryStats: CategoryStat[],
+): CategoryStat | undefined {
+  const norm = freeText.toLowerCase().trim();
+  if (!norm) return undefined;
+
+  const exact = categoryStats.find((c) => c.category.toLowerCase() === norm);
+  if (exact) return exact;
+
+  const substring = categoryStats.find((c) => {
+    const cat = c.category.toLowerCase();
+    return cat.includes(norm) || norm.includes(cat);
+  });
+  if (substring) return substring;
+
+  for (const [pattern, synonym] of CATEGORY_SYNONYMS) {
+    if (pattern.test(norm)) {
+      const hit = categoryStats.find((c) => c.category.toLowerCase() === synonym);
+      if (hit) return hit;
+    }
+  }
+  return undefined;
+}
+
+// "Nietzsche's and the other bar spots in Buffalo" -- null when there is
+// nothing real to name.
+function competitorClause(
+  examples: string[],
+  category: string,
+  city: string,
+): string | null {
+  if (examples.length === 0) return null;
+  const shown = examples.slice(0, 2);
+  const namesPart = shown.length === 1 ? shown[0] : `${shown[0]} and ${shown[1]}`;
+  return `${namesPart} and the other ${category.toLowerCase()} spots in ${city}`;
+}
+
+// Wikipedia city summaries reliably state population in the lead paragraph
+// ("...with a population of 278,349 at the 2020 census."). Pull it out as a
+// concrete fact to ground the report in the real place, not just its name.
+function extractPopulationNote(extract: string | undefined): string | null {
+  if (!extract) return null;
+  const match = extract.match(/population of ([\d,]+)/i);
+  if (!match) return null;
+  return `roughly ${match[1]} people`;
 }
 
 // ---------------------------------------------------------------------------
