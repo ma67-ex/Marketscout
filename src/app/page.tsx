@@ -8,7 +8,7 @@
 // and the detail sections flow below. Kept deliberately minimal: black/white,
 // thin borders, no decoration that does not carry information.
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import RotatingEarth, { type GlobeFocus } from "@/components/ui/wireframe-globe";
 import LocationAutocomplete from "@/components/ui/location-autocomplete";
 import FieldOfStudySelect from "@/components/ui/field-of-study-select";
@@ -34,6 +34,19 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<AnalysisReport | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
+
+  // The globe is a fixed-aspect canvas sized off the viewport — on narrow
+  // screens it has no room to stay circular, so it's dropped entirely below
+  // the breakpoint where the layout goes two-column, rather than rendered
+  // squished. Starts false so server and first client render agree.
+  const [showGlobe, setShowGlobe] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    setShowGlobe(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => setShowGlobe(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
 
   // Stable reference so the globe only re-animates when the coordinates
   // actually change, not on every unrelated re-render.
@@ -166,7 +179,9 @@ export default function Home() {
           )}
         </form>
 
-        <RotatingEarth width={640} height={560} focus={focus} className="mx-auto" />
+        {showGlobe && (
+          <RotatingEarth size={560} focus={focus} className="mx-auto" />
+        )}
       </section>
 
       {report && (

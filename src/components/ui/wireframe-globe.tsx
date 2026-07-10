@@ -7,6 +7,12 @@
 // that coordinate, then floods the containing US state (or country, outside
 // the US) in red so the selected area reads clearly at a glance. When
 // cleared, it zooms back out and resumes the idle auto-rotation.
+//
+// Sizing: the canvas is a CSS square (`aspect-ratio: 1 / 1`) and a
+// ResizeObserver keeps its backing bitmap locked to the *actual rendered*
+// box size. Never derive the bitmap from viewport dimensions or set width
+// and height independently -- any mismatch between the bitmap's aspect
+// ratio and the box it's stretched into visibly squishes the circle.
 
 import { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
@@ -17,8 +23,7 @@ export interface GlobeFocus {
 }
 
 interface RotatingEarthProps {
-  width?: number;
-  height?: number;
+  size?: number;
   className?: string;
   focus?: GlobeFocus | null;
 }
@@ -51,8 +56,7 @@ const FOCUS_ANIMATION_MS = 1400;
 const HIGHLIGHT_FILL = "220, 38, 38";
 
 export default function RotatingEarth({
-  width = 800,
-  height = 600,
+  size = 560,
   className = "",
   focus = null,
 }: RotatingEarthProps) {
@@ -65,6 +69,7 @@ export default function RotatingEarth({
   const renderRef = useRef<((elapsed?: number) => void) | null>(null);
   const rotationRef = useRef<[number, number]>([0, 0]);
   const baseRadiusRef = useRef(0);
+  const boxSizeRef = useRef(0);
   const autoRotateRef = useRef(true);
   const markerRef = useRef<GlobeFocus | null>(focus);
   const focusAnimationRef = useRef<d3.Timer | null>(null);
@@ -74,56 +79,32 @@ export default function RotatingEarth({
   const countriesRef = useRef<GeoCollection | null>(null);
 
   useEffect(() => {
-    if (!canvasRef.current) return;
-
-    const canvas = canvasRef.current;
+    const canvasEl = canvasRef.current;
+    if (!canvasEl) return;
+    const canvas = canvasEl;
     const context = canvas.getContext("2d");
     if (!context) return;
 
-    // Set up responsive dimensions. Fall back to the requested size when the
-    // window reports 0 (can happen if the effect runs before layout), and
-    // floor both dimensions so the derived radius can never go <= 0 -- a
-    // negative radius makes canvas arc() throw and blanks the globe.
-    const viewportWidth = window.innerWidth || width;
-    const viewportHeight = window.innerHeight || height;
-    const containerWidth = Math.max(240, Math.min(width, viewportWidth - 40));
-    const containerHeight = Math.max(240, Math.min(height, viewportHeight - 100));
-    const radius = Math.min(containerWidth, containerHeight) / 2.5;
-    baseRadiusRef.current = radius;
-
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = containerWidth * dpr;
-    canvas.height = containerHeight * dpr;
-    canvas.style.width = `${containerWidth}px`;
-    canvas.style.height = `${containerHeight}px`;
-    context.scale(dpr, dpr);
-
-    const projection = d3
-      .geoOrthographic()
-      .scale(radius)
-      .translate([containerWidth / 2, containerHeight / 2])
-      .clipAngle(90);
-    projectionRef.current = projection;
-
-    const path = d3.geoPath().projection(projection).context(context);
-
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     let landFeatures: GeoCollection | null = null;
+    let started = false;
+    let cleanupInteraction: (() => void) | null = null;
 
     const render = (elapsed = 0) => {
-      context.clearRect(0, 0, containerWidth, containerHeight);
+      const projection = projectionRef.current;
+      const boxSize = boxSizeRef.current;
+      const radius = baseRadiusRef.current;
+      if (!projection || !boxSize || !radius) return;
+
+      const path = d3.geoPath().projection(projection).context(context);
+      context.clearRect(0, 0, boxSize, boxSize);
 
       const currentScale = projection.scale();
       const scaleFactor = currentScale / radius;
 
       // Globe disc and outline.
       context.beginPath();
-      context.arc(
-        containerWidth / 2,
-        containerHeight / 2,
-        currentScale,
-        0,
-        2 * Math.PI,
-      );
+      context.arc(boxSize / 2, boxSize / 2, currentScale, 0, 2 * Math.PI);
       context.fillStyle = "#000000";
       context.fill();
       context.strokeStyle = "#ffffff";
@@ -167,30 +148,41 @@ export default function RotatingEarth({
     };
     renderRef.current = render;
 
-    const loadWorldData = async () => {
-      try {
-        setIsLoading(true);
-        const [landRes, statesRes, countriesRes] = await Promise.all([
-          fetch(LAND_DATA_URL),
-          fetch(US_STATES_URL),
-          fetch(COUNTRIES_URL),
-        ]);
-        if (!landRes.ok) throw new Error("Failed to load land data");
+    // (Re)fit the projection to the box's current rendered size, preserving
+    // the current zoom ratio so a mid-focus resize doesn't snap the view.
+    const applySize = (renderedSize: number) => {
+      const boxSize = Math.max(160, Math.round(renderedSize));
+      if (boxSize === boxSizeRef.current) return;
 
-        landFeatures = (await landRes.json()) as GeoCollection;
-        statesRef.current = statesRes.ok
-          ? ((await statesRes.json()) as GeoCollection)
-          : null;
-        countriesRef.current = countriesRes.ok
-          ? ((await countriesRes.json()) as GeoCollection)
-          : null;
+      const prevRadius = baseRadiusRef.current;
+      const prevScale = projectionRef.current?.scale();
+      const zoomRatio = prevRadius && prevScale ? prevScale / prevRadius : 1;
 
-        render();
-        setIsLoading(false);
-      } catch (err) {
-        console.error("[globe] load failed:", err);
-        setError("Failed to load land map data");
-        setIsLoading(false);
+      boxSizeRef.current = boxSize;
+      const radius = boxSize / 2.5;
+      baseRadiusRef.current = radius;
+
+      canvas.width = boxSize * dpr;
+      canvas.height = boxSize * dpr;
+      context.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      if (!projectionRef.current) {
+        projectionRef.current = d3
+          .geoOrthographic()
+          .scale(radius)
+          .translate([boxSize / 2, boxSize / 2])
+          .clipAngle(90);
+      } else {
+        projectionRef.current
+          .translate([boxSize / 2, boxSize / 2])
+          .scale(radius * zoomRatio);
+      }
+
+      render();
+
+      if (!started) {
+        started = true;
+        cleanupInteraction = setupInteractionAndData();
       }
     };
 
@@ -199,6 +191,8 @@ export default function RotatingEarth({
     const ROTATION_DEG_PER_SEC = 8;
     let lastElapsed = 0;
     const rotate = (elapsed: number) => {
+      const projection = projectionRef.current;
+      if (!projection) return;
       const deltaMs = lastElapsed ? elapsed - lastElapsed : 0;
       lastElapsed = elapsed;
       if (autoRotateRef.current) {
@@ -207,74 +201,122 @@ export default function RotatingEarth({
         render(elapsed);
       }
     };
-    const rotationTimer = d3.timer(rotate);
 
-    const handleMouseDown = (event: MouseEvent) => {
-      autoRotateRef.current = false;
-      const startX = event.clientX;
-      const startY = event.clientY;
-      const startRotation: [number, number] = [...rotationRef.current];
+    function setupInteractionAndData() {
+      const rotationTimer = d3.timer(rotate);
 
-      const handleMouseMove = (moveEvent: MouseEvent) => {
-        const sensitivity = 0.5;
-        const dx = moveEvent.clientX - startX;
-        const dy = moveEvent.clientY - startY;
+      const handleMouseDown = (event: MouseEvent) => {
+        autoRotateRef.current = false;
+        const startX = event.clientX;
+        const startY = event.clientY;
+        const startRotation: [number, number] = [...rotationRef.current];
 
-        rotationRef.current[0] = startRotation[0] + dx * sensitivity;
-        rotationRef.current[1] = Math.max(
-          -90,
-          Math.min(90, startRotation[1] - dy * sensitivity),
+        const handleMouseMove = (moveEvent: MouseEvent) => {
+          const projection = projectionRef.current;
+          if (!projection) return;
+          const sensitivity = 0.5;
+          const dx = moveEvent.clientX - startX;
+          const dy = moveEvent.clientY - startY;
+
+          rotationRef.current[0] = startRotation[0] + dx * sensitivity;
+          rotationRef.current[1] = Math.max(
+            -90,
+            Math.min(90, startRotation[1] - dy * sensitivity),
+          );
+          projection.rotate(rotationRef.current);
+          render();
+        };
+
+        const handleMouseUp = () => {
+          document.removeEventListener("mousemove", handleMouseMove);
+          document.removeEventListener("mouseup", handleMouseUp);
+          // Only resume the idle spin when nothing is focused.
+          setTimeout(() => {
+            if (!markerRef.current) autoRotateRef.current = true;
+          }, 10);
+        };
+
+        document.addEventListener("mousemove", handleMouseMove);
+        document.addEventListener("mouseup", handleMouseUp);
+      };
+
+      const handleWheel = (event: WheelEvent) => {
+        const projection = projectionRef.current;
+        if (!projection) return;
+        event.preventDefault();
+        const radius = baseRadiusRef.current;
+        const factor = event.deltaY > 0 ? 0.9 : 1.1;
+        const newScale = Math.max(
+          radius * 0.5,
+          Math.min(radius * 3, projection.scale() * factor),
         );
-        projection.rotate(rotationRef.current);
+        projection.scale(newScale);
         render();
       };
 
-      const handleMouseUp = () => {
-        document.removeEventListener("mousemove", handleMouseMove);
-        document.removeEventListener("mouseup", handleMouseUp);
-        // Only resume the idle spin when nothing is focused.
-        setTimeout(() => {
-          if (!markerRef.current) autoRotateRef.current = true;
-        }, 10);
+      canvas.addEventListener("mousedown", handleMouseDown);
+      canvas.addEventListener("wheel", handleWheel, { passive: false });
+
+      // If a focus already exists (e.g. after remount), jump straight to it
+      // without animating.
+      const projection = projectionRef.current;
+      if (markerRef.current && projection) {
+        autoRotateRef.current = false;
+        rotationRef.current = [-markerRef.current.lng, -markerRef.current.lat];
+        projection.rotate(rotationRef.current);
+        projection.scale(baseRadiusRef.current * FOCUS_ZOOM);
+      }
+
+      const loadWorldData = async () => {
+        try {
+          setIsLoading(true);
+          const [landRes, statesRes, countriesRes] = await Promise.all([
+            fetch(LAND_DATA_URL),
+            fetch(US_STATES_URL),
+            fetch(COUNTRIES_URL),
+          ]);
+          if (!landRes.ok) throw new Error("Failed to load land data");
+
+          landFeatures = (await landRes.json()) as GeoCollection;
+          statesRef.current = statesRes.ok
+            ? ((await statesRes.json()) as GeoCollection)
+            : null;
+          countriesRef.current = countriesRes.ok
+            ? ((await countriesRes.json()) as GeoCollection)
+            : null;
+
+          render();
+          setIsLoading(false);
+        } catch (err) {
+          console.error("[globe] load failed:", err);
+          setError("Failed to load land map data");
+          setIsLoading(false);
+        }
       };
+      loadWorldData();
 
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-    };
-
-    const handleWheel = (event: WheelEvent) => {
-      event.preventDefault();
-      const factor = event.deltaY > 0 ? 0.9 : 1.1;
-      const newScale = Math.max(
-        radius * 0.5,
-        Math.min(radius * 3, projection.scale() * factor),
-      );
-      projection.scale(newScale);
-      render();
-    };
-
-    canvas.addEventListener("mousedown", handleMouseDown);
-    canvas.addEventListener("wheel", handleWheel, { passive: false });
-
-    // If a focus already exists (e.g. after a resize re-runs this effect),
-    // jump straight to it without animating.
-    if (markerRef.current) {
-      autoRotateRef.current = false;
-      rotationRef.current = [-markerRef.current.lng, -markerRef.current.lat];
-      projection.rotate(rotationRef.current);
-      projection.scale(radius * FOCUS_ZOOM);
+      return () => {
+        rotationTimer.stop();
+        canvas.removeEventListener("mousedown", handleMouseDown);
+        canvas.removeEventListener("wheel", handleWheel);
+      };
     }
 
-    loadWorldData();
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      const renderedSize =
+        entry.contentBoxSize?.[0]?.inlineSize ?? entry.contentRect.width;
+      applySize(renderedSize);
+    });
+    resizeObserver.observe(canvas);
 
     return () => {
-      rotationTimer.stop();
+      resizeObserver.disconnect();
+      cleanupInteraction?.();
       focusAnimationRef.current?.stop();
       pulseTimerRef.current?.stop();
-      canvas.removeEventListener("mousedown", handleMouseDown);
-      canvas.removeEventListener("wheel", handleWheel);
     };
-  }, [width, height]);
+  }, []);
 
   // Animate to a newly focused location (or back out when focus clears), and
   // figure out which state/country polygon should flood red.
@@ -366,11 +408,11 @@ export default function RotatingEarth({
   }
 
   return (
-    <div className={`relative ${className}`}>
+    <div className={`relative w-full ${className}`} style={{ maxWidth: size }}>
       <canvas
         ref={canvasRef}
-        className="w-full h-auto rounded-2xl bg-background"
-        style={{ maxWidth: "100%", height: "auto" }}
+        className="block w-full rounded-2xl"
+        style={{ aspectRatio: "1 / 1" }}
       />
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center">
