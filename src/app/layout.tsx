@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import AmbientDriftBackground from "@/components/ui/ambient-drift-background";
+import ConsentNotice from "@/components/ui/consent-notice";
+import SiteFooter from "@/components/ui/site-footer";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -31,7 +33,11 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <AmbientDriftBackground />
-        {children}
+        <div className="flex min-h-full flex-1 flex-col">
+          <div className="flex-1">{children}</div>
+          <SiteFooter />
+        </div>
+        <ConsentNotice />
       </body>
     </html>
   );
