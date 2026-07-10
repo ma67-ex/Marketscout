@@ -4,12 +4,12 @@
 //
 // Layout: the wireframe globe is the centerpiece with the input form beside
 // it. When an analysis comes back, the globe zooms to the geocoded location
-// with a marker, the headline findings sit next to it, and the detail
-// sections flow below. Kept deliberately minimal: black/white, thin borders,
-// no decoration that does not carry information.
+// and floods the containing state red, the headline findings sit next to it,
+// and the detail sections flow below. Kept deliberately minimal: black/white,
+// thin borders, no decoration that does not carry information.
 
 import { useMemo, useRef, useState } from "react";
-import RotatingEarth, { type GlobeFocus } from "@/components/ui/wireframe-dotted-globe";
+import RotatingEarth, { type GlobeFocus } from "@/components/ui/wireframe-globe";
 import LocationAutocomplete from "@/components/ui/location-autocomplete";
 import FieldOfStudySelect from "@/components/ui/field-of-study-select";
 import type { AnalysisMode, AnalysisReport } from "@/lib/types";

@@ -1,11 +1,12 @@
 "use client";
 
-// Wireframe dotted globe rendered to canvas with d3-geo.
+// Wireframe globe rendered to canvas with d3-geo.
 //
 // Adapted from the stock component with one addition Market Scout needs: a
 // `focus` prop. When set, the globe animates its rotation and zoom to center
-// that coordinate and draws a marker on it; when cleared, it zooms back out
-// and resumes the idle auto-rotation.
+// that coordinate, then floods the containing US state (or country, outside
+// the US) in red so the selected area reads clearly at a glance. When
+// cleared, it zooms back out and resumes the idle auto-rotation.
 
 import { useEffect, useRef, useState } from "react";
 import * as d3 from "d3";
@@ -22,30 +23,32 @@ interface RotatingEarthProps {
   focus?: GlobeFocus | null;
 }
 
-// Minimal GeoJSON shapes for the Natural Earth land file.
-type Ring = [number, number][];
-interface LandGeometry {
-  type: "Polygon" | "MultiPolygon";
-  coordinates: Ring[] | Ring[][];
-}
-interface LandFeature {
+// Minimal GeoJSON shapes for the Natural Earth files this component loads.
+interface GeoFeature {
   type: "Feature";
-  geometry: LandGeometry;
+  geometry: d3.GeoGeometryObjects;
   properties?: Record<string, unknown>;
 }
-interface LandCollection {
+interface GeoCollection {
   type: "FeatureCollection";
-  features: LandFeature[];
+  features: GeoFeature[];
 }
 
 // Served from /public (same origin) so it loads under the app's strict CSP
 // (`connect-src 'self'`) without depending on GitHub being reachable.
-// Source: natural-earth-geojson 110m physical land (martynafford).
+// Source: natural-earth-geojson 110m (martynafford), trimmed to the
+// properties this component actually reads.
 const LAND_DATA_URL = "/ne_110m_land.json";
+const US_STATES_URL = "/ne_110m_us_states.json";
+const COUNTRIES_URL = "/ne_110m_countries.json";
 
 // How much closer the camera gets when a location is focused.
 const FOCUS_ZOOM = 1.65;
 const FOCUS_ANIMATION_MS = 1400;
+
+// Highlight color: matches the app's --destructive token family so the red
+// reads as intentional accent, not a foreign color.
+const HIGHLIGHT_FILL = "220, 38, 38";
 
 export default function RotatingEarth({
   width = 800,
@@ -59,12 +62,16 @@ export default function RotatingEarth({
 
   // Shared mutable state between the setup effect and the focus effect.
   const projectionRef = useRef<d3.GeoProjection | null>(null);
-  const renderRef = useRef<(() => void) | null>(null);
+  const renderRef = useRef<((elapsed?: number) => void) | null>(null);
   const rotationRef = useRef<[number, number]>([0, 0]);
   const baseRadiusRef = useRef(0);
   const autoRotateRef = useRef(true);
   const markerRef = useRef<GlobeFocus | null>(focus);
   const focusAnimationRef = useRef<d3.Timer | null>(null);
+  const pulseTimerRef = useRef<d3.Timer | null>(null);
+  const highlightFeatureRef = useRef<GeoFeature | null>(null);
+  const statesRef = useRef<GeoCollection | null>(null);
+  const countriesRef = useRef<GeoCollection | null>(null);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -100,71 +107,9 @@ export default function RotatingEarth({
 
     const path = d3.geoPath().projection(projection).context(context);
 
-    const pointInPolygon = (point: [number, number], polygon: Ring): boolean => {
-      const [x, y] = point;
-      let inside = false;
-      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-        const [xi, yi] = polygon[i];
-        const [xj, yj] = polygon[j];
-        if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) {
-          inside = !inside;
-        }
-      }
-      return inside;
-    };
+    let landFeatures: GeoCollection | null = null;
 
-    const pointInFeature = (
-      point: [number, number],
-      feature: LandFeature,
-    ): boolean => {
-      const geometry = feature.geometry;
-
-      if (geometry.type === "Polygon") {
-        const coordinates = geometry.coordinates as Ring[];
-        if (!pointInPolygon(point, coordinates[0])) return false;
-        for (let i = 1; i < coordinates.length; i++) {
-          if (pointInPolygon(point, coordinates[i])) return false;
-        }
-        return true;
-      }
-
-      // MultiPolygon: inside if within any outer ring and not in its holes.
-      for (const polygon of geometry.coordinates as Ring[][]) {
-        if (pointInPolygon(point, polygon[0])) {
-          let inHole = false;
-          for (let i = 1; i < polygon.length; i++) {
-            if (pointInPolygon(point, polygon[i])) {
-              inHole = true;
-              break;
-            }
-          }
-          if (!inHole) return true;
-        }
-      }
-      return false;
-    };
-
-    const generateDotsInPolygon = (feature: LandFeature, dotSpacing = 16) => {
-      const dots: [number, number][] = [];
-      const bounds = d3.geoBounds(feature as d3.GeoPermissibleObjects);
-      const [[minLng, minLat], [maxLng, maxLat]] = bounds;
-      const stepSize = dotSpacing * 0.08;
-
-      for (let lng = minLng; lng <= maxLng; lng += stepSize) {
-        for (let lat = minLat; lat <= maxLat; lat += stepSize) {
-          const point: [number, number] = [lng, lat];
-          if (pointInFeature(point, feature)) {
-            dots.push(point);
-          }
-        }
-      }
-      return dots;
-    };
-
-    const allDots: [number, number][] = [];
-    let landFeatures: LandCollection | null = null;
-
-    const render = () => {
+    const render = (elapsed = 0) => {
       context.clearRect(0, 0, containerWidth, containerHeight);
 
       const currentScale = projection.scale();
@@ -204,51 +149,20 @@ export default function RotatingEarth({
         context.strokeStyle = "#ffffff";
         context.lineWidth = 1 * scaleFactor;
         context.stroke();
-
-        // Halftone dots.
-        allDots.forEach(([lng, lat]) => {
-          const projected = projection([lng, lat]);
-          if (
-            projected &&
-            projected[0] >= 0 &&
-            projected[0] <= containerWidth &&
-            projected[1] >= 0 &&
-            projected[1] <= containerHeight
-          ) {
-            context.beginPath();
-            context.arc(projected[0], projected[1], 1.2 * scaleFactor, 0, 2 * Math.PI);
-            context.fillStyle = "#999999";
-            context.fill();
-          }
-        });
       }
 
-      // Location marker: only drawn when its point is on the near side of
-      // the globe (great-circle distance from the view center under 90 deg).
-      const marker = markerRef.current;
-      if (marker) {
-        const [rLambda, rPhi] = rotationRef.current;
-        const distance = d3.geoDistance(
-          [marker.lng, marker.lat],
-          [-rLambda, -rPhi],
-        );
-        if (distance < Math.PI / 2) {
-          const projected = projection([marker.lng, marker.lat]);
-          if (projected) {
-            const [x, y] = projected;
-            context.beginPath();
-            context.arc(x, y, 4.5, 0, 2 * Math.PI);
-            context.fillStyle = "#ffffff";
-            context.fill();
-            context.beginPath();
-            context.arc(x, y, 10, 0, 2 * Math.PI);
-            context.strokeStyle = "#ffffff";
-            context.lineWidth = 1.5;
-            context.globalAlpha = 0.6;
-            context.stroke();
-            context.globalAlpha = 1;
-          }
-        }
+      // Selected area: the containing state (or country, outside the US)
+      // floods red with a slow pulse instead of a pinned marker dot.
+      const highlight = highlightFeatureRef.current;
+      if (highlight) {
+        const pulse = 0.4 + 0.18 * Math.sin(elapsed / 650);
+        context.beginPath();
+        path(highlight as d3.GeoPermissibleObjects);
+        context.fillStyle = `rgba(${HIGHLIGHT_FILL}, ${pulse})`;
+        context.fill();
+        context.strokeStyle = `rgba(${HIGHLIGHT_FILL}, 0.9)`;
+        context.lineWidth = 1.5 * scaleFactor;
+        context.stroke();
       }
     };
     renderRef.current = render;
@@ -256,13 +170,20 @@ export default function RotatingEarth({
     const loadWorldData = async () => {
       try {
         setIsLoading(true);
-        const response = await fetch(LAND_DATA_URL);
-        if (!response.ok) throw new Error("Failed to load land data");
+        const [landRes, statesRes, countriesRes] = await Promise.all([
+          fetch(LAND_DATA_URL),
+          fetch(US_STATES_URL),
+          fetch(COUNTRIES_URL),
+        ]);
+        if (!landRes.ok) throw new Error("Failed to load land data");
 
-        landFeatures = (await response.json()) as LandCollection;
-        landFeatures.features.forEach((feature) => {
-          allDots.push(...generateDotsInPolygon(feature, 16));
-        });
+        landFeatures = (await landRes.json()) as GeoCollection;
+        statesRef.current = statesRes.ok
+          ? ((await statesRes.json()) as GeoCollection)
+          : null;
+        countriesRef.current = countriesRes.ok
+          ? ((await countriesRes.json()) as GeoCollection)
+          : null;
 
         render();
         setIsLoading(false);
@@ -283,7 +204,7 @@ export default function RotatingEarth({
       if (autoRotateRef.current) {
         rotationRef.current[0] += (ROTATION_DEG_PER_SEC / 1000) * deltaMs;
         projection.rotate(rotationRef.current);
-        render();
+        render(elapsed);
       }
     };
     const rotationTimer = d3.timer(rotate);
@@ -349,12 +270,14 @@ export default function RotatingEarth({
     return () => {
       rotationTimer.stop();
       focusAnimationRef.current?.stop();
+      pulseTimerRef.current?.stop();
       canvas.removeEventListener("mousedown", handleMouseDown);
       canvas.removeEventListener("wheel", handleWheel);
     };
   }, [width, height]);
 
-  // Animate to a newly focused location (or back out when focus clears).
+  // Animate to a newly focused location (or back out when focus clears), and
+  // figure out which state/country polygon should flood red.
   useEffect(() => {
     markerRef.current = focus;
 
@@ -363,6 +286,22 @@ export default function RotatingEarth({
     if (!projection || !render) return;
 
     focusAnimationRef.current?.stop();
+    pulseTimerRef.current?.stop();
+
+    if (focus) {
+      const point: [number, number] = [focus.lng, focus.lat];
+      const state = statesRef.current?.features.find((f) =>
+        d3.geoContains(f as d3.GeoPermissibleObjects, point),
+      );
+      const country = state
+        ? undefined
+        : countriesRef.current?.features.find((f) =>
+            d3.geoContains(f as d3.GeoPermissibleObjects, point),
+          );
+      highlightFeatureRef.current = state ?? country ?? null;
+    } else {
+      highlightFeatureRef.current = null;
+    }
 
     const startRotation: [number, number] = [...rotationRef.current];
     const startScale = projection.scale();
@@ -389,11 +328,19 @@ export default function RotatingEarth({
       rotationRef.current[1] = startRotation[1] + dPhi * e;
       projection.rotate(rotationRef.current);
       projection.scale(startScale + dScale * e);
-      render();
+      render(elapsed);
 
       if (t >= 1) {
         timer.stop();
-        if (!focus) autoRotateRef.current = true;
+        if (!focus) {
+          autoRotateRef.current = true;
+        } else if (highlightFeatureRef.current) {
+          // Keep the highlighted area pulsing gently while it's focused.
+          const pulseTimer = d3.timer((pulseElapsed) => {
+            render(FOCUS_ANIMATION_MS + pulseElapsed);
+          });
+          pulseTimerRef.current = pulseTimer;
+        }
       }
     });
     focusAnimationRef.current = timer;
