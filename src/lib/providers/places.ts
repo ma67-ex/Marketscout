@@ -88,35 +88,44 @@ const OVERPASS_ENDPOINTS = [
 ];
 
 async function queryOverpass(query: string): Promise<OverpassResponse> {
-  let lastError = "";
+  // Race all mirrors at once instead of trying them one at a time -- a
+  // sequential retry chain means a slow/overloaded mirror blocks the ones
+  // behind it even though they're independent servers. Promise.any returns
+  // as soon as the first one succeeds; a mirror that 200s with malformed
+  // data is treated as a failure so the others still get a chance.
+  const attempts = OVERPASS_ENDPOINTS.map((endpoint) => queryOneMirror(endpoint, query));
 
-  for (const endpoint of OVERPASS_ENDPOINTS) {
-    try {
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          // OSM services reject requests without an identifying User-Agent.
-          "User-Agent": "MarketScout/0.1 (local analysis tool)",
-        },
-        body: `data=${encodeURIComponent(query)}`,
-        // Fail over to the next mirror quickly rather than hanging on one
-        // overloaded server. The Overpass-side [timeout:20] bounds the work.
-        signal: AbortSignal.timeout(22_000),
-      });
-
-      if (res.ok) {
-        return (await res.json()) as OverpassResponse;
-      }
-      lastError = `${res.status} ${res.statusText}`;
-    } catch (err) {
-      lastError = err instanceof Error ? err.message : String(err);
-    }
+  try {
+    return await Promise.any(attempts);
+  } catch (err) {
+    const lastError =
+      err instanceof AggregateError
+        ? err.errors.map((e) => String(e?.message ?? e)).join("; ")
+        : String(err);
+    throw new Error(
+      `All Overpass servers are busy right now (last error: ${lastError}). Wait a moment and try again.`,
+    );
   }
+}
 
-  throw new Error(
-    `All Overpass servers are busy right now (last error: ${lastError}). Wait a moment and try again.`,
-  );
+async function queryOneMirror(endpoint: string, query: string): Promise<OverpassResponse> {
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      // OSM services reject requests without an identifying User-Agent.
+      "User-Agent": "MarketScout/0.1 (local analysis tool)",
+    },
+    body: `data=${encodeURIComponent(query)}`,
+    // Bound each mirror's own wait; the Overpass-side [timeout:20] bounds
+    // the server-side work.
+    signal: AbortSignal.timeout(22_000),
+  });
+
+  if (!res.ok) {
+    throw new Error(`${res.status} ${res.statusText}`);
+  }
+  return (await res.json()) as OverpassResponse;
 }
 
 // Map an Overpass element to our Place type. OSM does not have ratings or

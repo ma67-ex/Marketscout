@@ -32,16 +32,21 @@ export function createReviewsProvider(
 
       // Geocoders often return a formal name ("Greater London") that does not
       // match how Mangrove indexes a place ("London"), so query both the raw
-      // and a cleaned city name and merge the results.
+      // and a cleaned city name and merge the results. Fire every candidate
+      // concurrently rather than one at a time -- they're independent
+      // requests, and waiting for each in turn just stacks their latencies.
       const candidates = queryCandidates(location);
       if (candidates.length === 0) return [];
 
+      const results = await Promise.all(
+        candidates.map((term) => fetchReviews(term, limit)),
+      );
+
       const byText = new Map<string, PlaceReview>();
-      for (const term of candidates) {
-        for (const review of await fetchReviews(term, limit)) {
+      for (const reviews of results) {
+        for (const review of reviews) {
           if (!byText.has(review.text)) byText.set(review.text, review);
         }
-        if (byText.size >= limit) break;
       }
 
       return Array.from(byText.values()).slice(0, limit);

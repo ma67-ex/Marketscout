@@ -232,7 +232,7 @@ function buildRationale(
 ): string {
   const c = stat.category.toLowerCase();
   if (demand >= 70 && competition < 45) {
-    return `Strong everyday demand for ${c}, but only ${providerPhrase(stat.count)} in range -- a clear opening.`;
+    return `Strong everyday demand for ${c}, but only ${providerPhrase(stat.count)} in range, a clear opening.`;
   }
   if (stat.avgRating != null && stat.avgRating < 3.5 && stat.count > 0) {
     return `Existing ${c} providers are poorly rated (avg ${stat.avgRating}); a quality-focused entrant could win share.`;

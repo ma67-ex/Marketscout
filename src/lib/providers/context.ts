@@ -18,13 +18,16 @@ export function createContextProvider(
 
   return {
     async describe(location: GeoLocation) {
-      // Try the most specific title first, then fall back to broader ones.
+      // Query every title candidate concurrently rather than one at a time --
+      // a sequential fallback chain pays each miss's full timeout before
+      // trying the next. Still prefer the most specific title on success by
+      // picking from the settled results in priority order, not by whichever
+      // request happened to finish first.
       const candidates = titleCandidates(location);
-      for (const title of candidates) {
-        const context = await fetchSummary(title);
-        if (context) return context;
-      }
-      return undefined;
+      if (candidates.length === 0) return undefined;
+
+      const settled = await Promise.all(candidates.map((title) => fetchSummary(title)));
+      return settled.find((context) => context !== undefined);
     },
   };
 }

@@ -3,38 +3,53 @@ import type { AppConfig } from "@/lib/config";
 import type { AIProvider, AISynthesisInput, AISynthesisOutput } from "@/lib/providers/contracts";
 import type { AnalysisMode, BusinessRecommendation, CategoryStat, ImprovementReport, Saturation } from "@/lib/types";
 import { buildSystemPrompt, buildUserPrompt } from "@/lib/prompt";
+import { humanizeSynthesis } from "@/lib/humanize";
 
 export function createAIProvider(
   config: AppConfig,
   useMock: boolean,
 ): AIProvider {
+  const synthesizer = resolveSynthesizer(config, useMock);
+  // Every path -- live model or offline template -- gets run through the
+  // same de-AI-ifying pass before the report is shown, so results are
+  // dash-free and free of stock filler regardless of which provider wrote
+  // them.
+  return {
+    synthesize: async (input) => humanizeSynthesis(await synthesizer(input)),
+  };
+}
+
+function resolveSynthesizer(
+  config: AppConfig,
+  useMock: boolean,
+): (input: AISynthesisInput) => Promise<AISynthesisOutput> {
   if (useMock) {
-    return { synthesize: mockSynthesize };
+    return mockSynthesize;
   }
 
   // FreeLLMAPI (local proxy aggregating free-tier providers) is preferred
   // when configured -- it's the most capable free option and doesn't depend
   // on any single provider's quota.
   if (config.freeLlmApi.apiKey) {
-    return { synthesize: (input) => synthesizeWithFreeLlmApi(config, input) };
+    return (input) => synthesizeWithFreeLlmApi(config, input);
   }
 
   // Gemini (Google AI Studio) is genuinely free with no card, so it's the
   // realistic option most users actually have -- prefer it over Anthropic
   // when both are configured.
   if (config.google.apiKey) {
-    return { synthesize: (input) => synthesizeWithGemini(config, input) };
+    return (input) => synthesizeWithGemini(config, input);
   }
 
   if (config.ai.apiKey) {
     const client = new Anthropic({ apiKey: config.ai.apiKey });
-    return { synthesize: (input) => synthesizeWithClaude(client, config, input) };
+    return (input) => synthesizeWithClaude(client, config, input);
   }
 
   // Defensive fallback: resolveMockDecisions ties `useMock` to "no key
   // present", so this should be unreachable, but never fail a request over
   // a config mismatch -- degrade to the template instead.
-  return { synthesize: mockSynthesize };
+  return mockSynthesize;
 }
 
 async function synthesizeWithClaude(
@@ -247,7 +262,7 @@ function buildOpportunitySummary(
   return topGaps.length > 0
     ? pickBy(
         [
-          `${cityClause} leans heavily on ${crowded}, while ${gaps} look underserved — that's where a ${adjective} newcomer could win.`,
+          `${cityClause} leans heavily on ${crowded}, while ${gaps} look underserved. That's where a ${adjective} newcomer could win.`,
           `Across ${cityClause}, ${crowded} dominate the map, but ${gaps} are noticeably thin. Your ${input.fieldOfStudy} background points to a few concrete moves.`,
           `The data on ${cityClause} shows a crowded field in ${crowded} and visible openings in ${gaps}. A ${adjective} approach is the real differentiator here.`,
         ],
@@ -256,7 +271,7 @@ function buildOpportunitySummary(
     : pickBy(
         [
           `${cityClause} looks well-served across ${crowded}, so the play is a ${adjective} angle on an existing category rather than an untapped gap.`,
-          `Most common categories in ${cityClause} — ${crowded} — are already covered. Winning here means out-executing incumbents with a ${adjective} approach.`,
+          `Most common categories in ${cityClause}, namely ${crowded}, are already covered. Winning here means out-executing incumbents with a ${adjective} approach.`,
         ],
         seed,
       );
@@ -284,7 +299,7 @@ function buildImproveSummary(
     return pickBy(
       [
         `Running a ${businessType} in ${cityMid} means going up against ${clause}. Local sentiment points to specific things worth tightening.`,
-        `In ${cityMid} a ${businessType} competes directly with ${clause} — here's where the data says you can pull ahead.`,
+        `In ${cityMid} a ${businessType} competes directly with ${clause}. Here's where the data says you can pull ahead.`,
       ],
       seed,
     );
@@ -293,7 +308,7 @@ function buildImproveSummary(
   return pickBy(
     [
       `Here's what the data shows about running a ${businessType} in ${cityEnd}.`,
-      `${capitalize(businessType)}s in ${cityEnd} face a mixed picture based on local sentiment — here's the breakdown.`,
+      `${capitalize(businessType)}s in ${cityEnd} face a mixed picture based on local sentiment. Here's the breakdown.`,
     ],
     seed,
   );
@@ -309,7 +324,7 @@ function buildMockRecommendations(
   if (topGaps.length === 0) {
     return [
       {
-        name: capitalize(`${adjective} local ${input.fieldOfStudy} studio`),
+        name: capitalize(`local ${input.fieldOfStudy} studio`),
         category: "Professional services",
         whyInDemand: `${city} is well-covered on the usual categories, but specialized ${input.fieldOfStudy} services are still something people travel out of the area for.`,
         targetCustomer: `Small businesses and residents in ${city} who currently outsource ${input.fieldOfStudy} work elsewhere`,
@@ -320,7 +335,7 @@ function buildMockRecommendations(
           `A ${adjective} operating model most incumbents don't offer`,
         ],
         risks: [
-          "Market size may be limited in a smaller area — validate demand before committing",
+          "Market size may be limited in a smaller area, so validate demand before committing",
           "Building the first client base takes time and referrals",
         ],
         fieldFit: `Puts your ${input.fieldOfStudy} training to work directly, which is the whole moat.`,
@@ -357,7 +372,7 @@ function buildMockRecommendations(
       [
         `${gap.rationale} People here keep bringing up ${wanted}, and nothing in ${city} really serves it.`,
         `${gap.rationale} With ${wanted} coming up repeatedly in local chatter, there's room for a ${adjective} take.`,
-        `Demand for ${gap.category.toLowerCase()} outpaces what ${city} offers today — locals specifically mention ${wanted}.`,
+        `Demand for ${gap.category.toLowerCase()} outpaces what ${city} offers today. Locals specifically mention ${wanted}.`,
       ],
       seed,
     );
@@ -368,11 +383,11 @@ function buildMockRecommendations(
     const competitors = competitorsIn(gap.category, input.categoryStats);
     const competitorPhrase = competitorClause(competitors, gap.category, city);
     if (competitorPhrase) {
-      whyInDemand += ` Right now that means ${competitorPhrase} — a ${adjective} newcomer has room to stand apart.`;
+      whyInDemand += ` Right now that means ${competitorPhrase}, so a ${adjective} newcomer has room to stand apart.`;
     }
 
     return {
-      name: capitalize(`${adjective} ${concept}`),
+      name: capitalize(concept),
       category: gap.category,
       whyInDemand,
       targetCustomer: capitalize(`${customer} in ${city}`),
@@ -386,11 +401,11 @@ function buildMockRecommendations(
       ],
       risks: [
         gap.competitionScore > 50
-          ? "Established players are entrenched — you need a clear, defensible edge to displace them"
-          : "The market is unproven here — start lean and validate demand before scaling",
+          ? "Established players are entrenched, so you need a clear, defensible edge to displace them"
+          : "The market is unproven here, so start lean and validate demand before scaling",
         "Upfront capital for setup and the first several months of operation",
       ],
-      fieldFit: `Your ${input.fieldOfStudy} background is a natural fit — it's what lets you bring ${edge}.`,
+      fieldFit: `Your ${input.fieldOfStudy} background is a natural fit. It's what lets you bring ${edge}.`,
       confidence,
     };
   });
@@ -577,7 +592,7 @@ function buildMockImprovementReport(
   });
 
   const strengthsToKeep = positiveSignals.slice(0, 3).map((s) =>
-    `"${capitalize(s.theme)}" is viewed positively -- maintain current standards in this area`,
+    `"${capitalize(s.theme)}" is viewed positively, so maintain current standards in this area`,
   );
 
   if (strengthsToKeep.length === 0) {
