@@ -3,6 +3,8 @@
 ![Stack](https://img.shields.io/badge/stack-Next.js%20%2F%20TypeScript%20%2F%20Tailwind-000000)
 ![Data](https://img.shields.io/badge/data-OpenStreetMap-7EBC6F)
 ![Cost](https://img.shields.io/badge/core%20features-free-2ea44f)
+![Last commit](https://img.shields.io/github/last-commit/ma67-ex/Marketscout)
+![Repo size](https://img.shields.io/github/repo-size/ma67-ex/Marketscout)
 
 Enter a location and your field of study. Market Scout scans the area's real businesses and local discussion, then tells you what kind of business is in demand there, or, if you already run one, what people want and what you can improve.
 
