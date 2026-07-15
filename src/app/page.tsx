@@ -28,12 +28,48 @@ const initialForm: FormState = {
   existingBusinessType: "",
 };
 
+// Where the most recent successful report is cached so it can be shown again
+// after a reload, including offline where a fresh analysis is impossible.
+const LAST_REPORT_KEY = "marketscout:last-report";
+
 export default function Home() {
   const [form, setForm] = useState<FormState>(initialForm);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<AnalysisReport | null>(null);
+  // Assume online for the first render so server and client markup agree; the
+  // effect below corrects it immediately on mount.
+  const [online, setOnline] = useState(true);
+  const [restored, setRestored] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
+
+  // Track connectivity so the UI can explain why analysis is unavailable and
+  // fall back to the cached report instead of a dead form.
+  useEffect(() => {
+    setOnline(navigator.onLine);
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
+
+  // Restore the last report from a previous session so a reload (or an offline
+  // visit) still shows the most recent findings.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LAST_REPORT_KEY);
+      if (raw) {
+        setReport(JSON.parse(raw) as AnalysisReport);
+        setRestored(true);
+      }
+    } catch {
+      // Corrupt or unavailable storage is non-fatal — start with no report.
+    }
+  }, []);
 
   // The globe is a fixed-aspect canvas sized off the viewport — on narrow
   // screens it has no room to stay circular, so it's dropped entirely below
@@ -58,6 +94,15 @@ export default function Home() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    // No point hitting the network offline — the analysis needs live data.
+    if (!navigator.onLine) {
+      setError(
+        "You are offline. Analysis needs a connection — showing your last saved report until you reconnect.",
+      );
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -78,13 +123,21 @@ export default function Home() {
         throw new Error(data?.error || "Something went wrong.");
       }
       setReport(data as AnalysisReport);
+      setRestored(false);
+      // Cache the fresh report so a reload or offline visit can show it again.
+      try {
+        localStorage.setItem(LAST_REPORT_KEY, JSON.stringify(data));
+      } catch {
+        // Storage full or blocked — the report still shows this session.
+      }
       // Let the globe finish zooming to the location (~1.4s) before scrolling
       // the findings into view, so the user actually sees it fly to the spot.
       setTimeout(() => {
         resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 1600);
     } catch (err) {
-      setReport(null);
+      // Keep whatever report is already on screen (a cached one) rather than
+      // blanking the page on a transient failure.
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       setLoading(false);
@@ -99,6 +152,20 @@ export default function Home() {
           Local market analysis from open data
         </p>
       </header>
+
+      {!online && (
+        <div className="mt-4 flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
+          <span
+            aria-hidden
+            className="inline-block size-2 shrink-0 rounded-full bg-destructive-foreground"
+          />
+          <span>
+            You are offline. The app is running from cache — you can still browse
+            your last saved report, but new analysis is paused until you
+            reconnect.
+          </span>
+        </div>
+      )}
 
       {/* Hero: form beside the globe. */}
       <section className="mt-6 grid items-center gap-8 lg:grid-cols-[minmax(0,380px)_1fr]">
@@ -184,12 +251,54 @@ export default function Home() {
         )}
       </section>
 
-      {report && (
+      {loading && <ReportSkeleton />}
+
+      {!loading && report && (
         <div ref={resultsRef} className="scroll-mt-6">
+          {restored && (
+            <p className="mt-14 text-xs text-muted-foreground">
+              Showing your last saved report{online ? "" : " (offline)"}. Run a
+              new analysis above to refresh it.
+            </p>
+          )}
           <Report report={report} />
         </div>
       )}
     </main>
+  );
+}
+
+// Placeholder shown while /api/analyze is in flight — mirrors the real report's
+// layout (headline, summary, a grid of cards) so the page does not jump when
+// the data lands.
+function ReportSkeleton() {
+  return (
+    <div className="mt-14 border-t border-border pt-8" aria-hidden>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="skeleton h-6 w-56" />
+        <div className="skeleton h-5 w-20 rounded-full" />
+        <div className="skeleton h-5 w-24 rounded-full" />
+        <div className="skeleton h-5 w-24 rounded-full" />
+      </div>
+      <div className="mt-4 max-w-3xl space-y-2">
+        <div className="skeleton h-4 w-full" />
+        <div className="skeleton h-4 w-11/12" />
+        <div className="skeleton h-4 w-3/4" />
+      </div>
+      <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="rounded-xl border border-border bg-card p-5">
+            <div className="skeleton h-5 w-32" />
+            <div className="skeleton mt-2 h-3 w-20" />
+            <div className="mt-4 space-y-2">
+              <div className="skeleton h-3 w-full" />
+              <div className="skeleton h-3 w-5/6" />
+              <div className="skeleton h-3 w-2/3" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

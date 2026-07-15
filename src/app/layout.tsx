@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import AmbientDriftBackground from "@/components/ui/ambient-drift-background";
 import ConsentNotice from "@/components/ui/consent-notice";
+import ServiceWorker from "@/components/ui/service-worker";
 import SiteFooter from "@/components/ui/site-footer";
 import "./globals.css";
 
@@ -38,6 +39,7 @@ export default function RootLayout({
           <SiteFooter />
         </div>
         <ConsentNotice />
+        <ServiceWorker />
       </body>
     </html>
   );

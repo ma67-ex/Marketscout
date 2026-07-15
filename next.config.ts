@@ -26,6 +26,8 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
+  // Service worker (public/sw.js) is same-origin.
+  "worker-src 'self'",
   connectSrc,
   "frame-ancestors 'none'",
   "base-uri 'self'",
