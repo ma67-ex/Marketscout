@@ -43,6 +43,12 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // A stray package-lock.json one level up (outside this project) makes
+  // Turbopack guess the wrong workspace root and lose module resolution.
+  // Pin it explicitly to this project's directory.
+  turbopack: {
+    root: __dirname,
+  },
   async headers() {
     return [
       {

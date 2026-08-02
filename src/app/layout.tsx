@@ -30,14 +30,12 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body className="flex min-h-dvh flex-col">
         <AmbientDriftBackground />
-        <div className="flex min-h-full flex-1 flex-col">
-          <div className="flex-1">{children}</div>
-          <SiteFooter />
-        </div>
+        <div className="flex-1">{children}</div>
+        <SiteFooter />
         <ConsentNotice />
         <ServiceWorker />
       </body>
