@@ -5,6 +5,11 @@
 ![Cost](https://img.shields.io/badge/core%20features-free-2ea44f)
 ![Last commit](https://img.shields.io/github/last-commit/ma67-ex/Marketscout)
 ![Repo size](https://img.shields.io/github/repo-size/ma67-ex/Marketscout)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+[![Market Scout landing page with an interactive wireframe globe](docs/screenshot.png)](https://www.agenvise.in/)
+
+**[Live demo](https://www.agenvise.in/)**
 
 Enter a location and your field of study. Market Scout scans the area's real businesses and local discussion, then tells you what kind of business is in demand there, or, if you already run one, what people want and what you can improve.
 
@@ -67,3 +72,7 @@ src/components/ui/             Wireframe dotted globe (canvas + d3-geo)
 
 - OpenStreetMap has no ratings or review text, so live demand signals lean on local discussion; sample reviews stand in until Reddit keys are added.
 - Scores are heuristics over open data. Treat the output as a research starting point, not a business plan.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
