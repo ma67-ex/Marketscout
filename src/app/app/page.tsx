@@ -8,7 +8,7 @@
 // and the detail sections flow below. Kept deliberately minimal: black/white,
 // thin borders, no decoration that does not carry information.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import RotatingEarth, { type GlobeFocus } from "@/components/ui/wireframe-globe";
 import LocationAutocomplete from "@/components/ui/location-autocomplete";
@@ -33,37 +33,42 @@ const initialForm: FormState = {
 // after a reload, including offline where a fresh analysis is impossible.
 const LAST_REPORT_KEY = "marketscout:last-report";
 
+const WIDE_QUERY = "(min-width: 1024px)";
+
+function subscribeOnline(notify: () => void) {
+  window.addEventListener("online", notify);
+  window.addEventListener("offline", notify);
+  return () => {
+    window.removeEventListener("online", notify);
+    window.removeEventListener("offline", notify);
+  };
+}
+
+function subscribeWide(notify: () => void) {
+  const mq = window.matchMedia(WIDE_QUERY);
+  mq.addEventListener("change", notify);
+  return () => mq.removeEventListener("change", notify);
+}
+
 export default function ScoutApp() {
   const [form, setForm] = useState<FormState>(initialForm);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<AnalysisReport | null>(null);
-  // Assume online for the first render so server and client markup agree; the
-  // effect below corrects it immediately on mount.
-  const [online, setOnline] = useState(true);
+  // Connectivity, read from the browser. The server snapshot is "online", so server and client markup agree
+  // on the first render and the real value follows straight after.
+  const online = useSyncExternalStore(subscribeOnline, () => navigator.onLine, () => true);
   const [restored, setRestored] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
 
-  // Track connectivity so the UI can explain why analysis is unavailable and
-  // fall back to the cached report instead of a dead form.
-  useEffect(() => {
-    setOnline(navigator.onLine);
-    const goOnline = () => setOnline(true);
-    const goOffline = () => setOnline(false);
-    window.addEventListener("online", goOnline);
-    window.addEventListener("offline", goOffline);
-    return () => {
-      window.removeEventListener("online", goOnline);
-      window.removeEventListener("offline", goOffline);
-    };
-  }, []);
-
   // Restore the last report from a previous session so a reload (or an offline
-  // visit) still shows the most recent findings.
+  // visit) still shows the most recent findings. localStorage only exists in the browser, so this has to run
+  // after mount to keep the first render identical to the server's.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(LAST_REPORT_KEY);
       if (raw) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time restore from localStorage after mount
         setReport(JSON.parse(raw) as AnalysisReport);
         setRestored(true);
       }
@@ -76,14 +81,7 @@ export default function ScoutApp() {
   // screens it has no room to stay circular, so it's dropped entirely below
   // the breakpoint where the layout goes two-column, rather than rendered
   // squished. Starts false so server and first client render agree.
-  const [showGlobe, setShowGlobe] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1024px)");
-    setShowGlobe(mq.matches);
-    const onChange = (e: MediaQueryListEvent) => setShowGlobe(e.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
+  const showGlobe = useSyncExternalStore(subscribeWide, () => window.matchMedia(WIDE_QUERY).matches, () => false);
 
   // Stable reference so the globe only re-animates when the coordinates
   // actually change, not on every unrelated re-render.

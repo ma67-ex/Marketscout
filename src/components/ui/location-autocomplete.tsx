@@ -59,9 +59,12 @@ export default function LocationAutocomplete({
 
     const q = value.trim();
     if (q.length < MIN_QUERY) {
+      // Too short to search: clear whatever the last query left open. Done here because it follows the input value.
+      /* eslint-disable react-hooks/set-state-in-effect -- reset in response to the typed value, with the debounce below */
       setSuggestions([]);
       setOpen(false);
       setLoading(false);
+      /* eslint-enable react-hooks/set-state-in-effect */
       return;
     }
 

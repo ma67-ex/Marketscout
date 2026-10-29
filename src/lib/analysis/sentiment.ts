@@ -40,7 +40,7 @@ const THEME_PATTERNS: readonly [string, RegExp][] = [
   ["atmosphere", /\b(atmosphere|vibe|ambiance|decor|space|loud|noise|quiet|calm)\b/i],
   ["capacity", /\b(crowd|capacity|full|busy|packed|overcrowded|waitlist|book(ed|ing))\b/i],
   ["childcare", /\b(child|kid|daycare|childcare|family|parent|baby)\b/i],
-  ["tech/digital", /\b(tech|computer|phone|app|digital|IT|repair|screen|software)\b/i],
+  ["tech/digital", /\b(tech|computer|phone|app|digital|repair|screen|software)\b/i], // the "IT" department is matched separately, case-sensitively
   ["community", /\b(community|event|networking|social|hang out|nightlife|entertainment)\b/i],
 ];
 
@@ -48,7 +48,13 @@ export function scoreSentiment(text: string): {
   score: number;
   label: Sentiment;
 } {
-  const words = text.toLowerCase().split(/\W+/).filter(Boolean);
+  // Splitting on \W turns "wasn't" into "wasn" + "t", which no negator matches, so spell contractions out first.
+  const words = text
+    .toLowerCase()
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/n't\b/g, " not")
+    .split(/\W+/)
+    .filter(Boolean);
   let total = 0;
   let counted = 0;
 
@@ -84,5 +90,7 @@ export function extractThemes(text: string): string[] {
       found.push(theme);
     }
   }
+  // "IT" must stay upper-case: with the i flag it would match the word "it" in nearly every review.
+  if (!found.includes("tech/digital") && /\bIT\b/.test(text)) found.push("tech/digital");
   return found;
 }
