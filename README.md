@@ -63,6 +63,13 @@ src/app/api/analyze/route.ts   POST endpoint
 src/components/ui/             Wireframe dotted globe (canvas + d3-geo)
 ```
 
+## Tests
+
+```bash
+npm test      # unit tests for the scoring, rate limiter and request validation (no network)
+npm run lint
+```
+
 ## Notes
 
 - OpenStreetMap has no ratings or review text, so live demand signals lean on local discussion; sample reviews stand in until Reddit keys are added.
